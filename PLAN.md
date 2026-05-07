@@ -80,13 +80,45 @@ comics-pinecone/
 
 ## Namespace Strategy (Single Pinecone Index)
 
-One dense index (`comics-multimodal`) with 3 namespaces, each representing a different embedding strategy. This lets readers compare results side-by-side on the same query.
+One **hybrid index** (`comics-multimodal`) via `pc.preview.indexes.create` with `SchemaBuilder`. A single Pinecone index can hold dense + sparse + FTS fields simultaneously (confirmed in docs: https://docs.pinecone.io/guides/search/full-text-search#schema-definition). Three namespaces, each representing a different embedding strategy.
+
+**Critical constraint:** Each query uses exactly one ranking signal (dense, sparse, or BM25/text). To combine signals, use text-match filters (`$match_phrase`, `$match_all`) to narrow candidates, then rank by vector.
 
 | Namespace | Embedding source | Model | Dim | Also has |
 |---|---|---|---|---|
 | `ns-text-caption` | LLM scene description → dense text embedding | `llama-text-embed-v2` | 1024 | FTS on dialogue |
 | `ns-image-clip` | Raw comic page image → multimodal embedding | `voyage-multimodal-3` | 1024 | — |
 | `ns-hybrid` | LLM description (dense) + dialogue (sparse + FTS) | `llama-text-embed-v2` + `pinecone-sparse-english-v0` | 1024 | FTS + sparse |
+
+**Index configuration (matches Pinecone web console):**
+
+| Setting | Value |
+|---|---|
+| Search type | Search by both meaning and exact words |
+| Embeddings | Dense + sparse |
+| Setup by model | `llama-text-embed-v2` (integrated inference for text namespaces) |
+| Dimension | 1,024 |
+| Metric | dotproduct (unit vectors → equivalent to cosine) |
+| Dense field name | `embedding` |
+| Sparse field name | `sparse_embedding` |
+| FTS field | `dialogue`, language: en, stemming: ON, stop words: ON |
+
+**Index schema (via `SchemaBuilder`):**
+```python
+schema = (
+    SchemaBuilder()
+      .add_string_field(name="dialogue", full_text_search={"language": "en", "stemming": True, "stop_words": True})
+      .add_string_field(name="comic_title", filterable=True)
+      .add_string_field(name="page_id", filterable=True)
+      .add_dense_vector_field(name="embedding", dimension=1024, metric="dotproduct")
+      .add_sparse_vector_field(name="sparse_embedding")
+      .build()
+)
+```
+
+**Upsert pattern differs by namespace:**
+- `ns-text-caption` / `ns-hybrid`: pass text field → Pinecone auto-embeds via `llama-text-embed-v2` (integrated inference)
+- `ns-image-clip`: upsert raw 1024-dim Voyage AI vectors directly (bypass integrated inference)
 
 ---
 
@@ -123,23 +155,30 @@ One dense index (`comics-multimodal`) with 3 namespaces, each representing a dif
 ## Notebook 03 — Approach 2: Direct Image Embeddings
 
 **Model:** Voyage AI `voyage-multimodal-3` (1024-dim, cosine)
-- API: `voyageai` Python package
+- API: `voyageai` Python package (`pip install voyageai`)
 - Cost: ~$0.000006/image
 - Handles both images and text queries in the same embedding space — enables cross-modal search
 
 **Pipeline:**
-1. Load each page image (`PIL.Image`)
-2. Call Voyage AI API: `voyageai.Client().embed([image], model="voyage-multimodal-3", input_type="document")`
-3. Upsert 1024-dim vectors to `ns-image-clip` namespace
+```python
+import voyageai
+vo = voyageai.Client()  # reads VOYAGE_API_KEY from env
+
+# Indexing: embed page image
+result = vo.multimodal_embed([[page_image]], model="voyage-multimodal-3", input_type="document")
+vector = result.embeddings[0]  # 1024-dim list
+
+# Querying: embed text query into same space
+result = vo.multimodal_embed([["dark alley chase scene"]], model="voyage-multimodal-3", input_type="query")
+query_vector = result.embeddings[0]
+```
 
 **Demo queries:**
-- Text-to-image: `"dark alley chase scene"` — embed the query text with `input_type="query"`, search
-- Image-to-image: Use another comic page as query input (find visually similar pages)
-- Cross-comic visual style matching: find pages with similar visual composition across comics
+- Text-to-image: `"dark alley chase scene"` → embed text, search `ns-image-clip`
+- Image-to-image: Use a comic page image as the query input → find visually similar pages
+- Cross-comic visual style matching: find pages with similar composition across comics
 
-**Blog post insight:** CLIP-style embeddings capture visual style and composition that text descriptions miss. But they're less precise for semantic concepts like "betrayal" or "revelation."
-
-**Open question:** Image model could also be Jina CLIP v2 (open source, free) — decide based on whether we want to avoid an additional API key for readers. Jina CLIP v2 via HuggingFace is more accessible but requires GPU or is slower on CPU.
+**Blog post insight:** Voyage multimodal embeddings capture visual style and composition that text descriptions miss. But they're less precise for abstract semantic concepts like "betrayal."
 
 ---
 
@@ -150,39 +189,55 @@ One dense index (`comics-multimodal`) with 3 namespaces, each representing a dif
 2. Sparse vector: Embed the dialogue text using `pinecone-sparse-english-v0`
 3. FTS field: Dialogue text with BM25 (via `SchemaBuilder`)
 
-**Index type:** Dense index (GA) with explicit sparse vector stored alongside dense, plus a separate FTS index for dialogue — or if Pinecone supports it, a single hybrid index.
+**Index type:** Single hybrid index via `SchemaBuilder` (dense + sparse + FTS fields in one index). All in `ns-hybrid` namespace.
 
-**Query types to demonstrate:**
-- Dense-only search (semantic)
-- Sparse-only search (keyword)
-- FTS search (BM25)
-- Hybrid (dense + sparse RRF/weighted fusion)
-- Triple fusion: dense + sparse + FTS combined
+**Query types to demonstrate (one ranking signal per query, per Pinecone constraint):**
 
-**Blog post insight:** Hybrid gives best recall and precision. Dense retrieves conceptually similar scenes; sparse catches exact character names, sound effects (KAPOW!), place names; FTS gives BM25 ranking on dialogue.
+| Query mode | Ranking signal | Notes |
+|---|---|---|
+| Dense semantic | `dense_vector` | "find scenes about justice" |
+| Sparse keyword | `sparse_vector` | "KAPOW detective badge" |
+| BM25 / FTS | `text` on `dialogue` field | exact phrase in speech bubbles |
+| Filter + rank | Text `$match_phrase` filter → dense ranking | narrow by keyword, then rerank by semantics |
+
+```python
+# Filter by keyword, rank by vector (the "hybrid" pattern in Pinecone)
+index.documents.search(
+    namespace="ns-hybrid",
+    top_k=5,
+    score_by=[{"type": "dense_vector", "field": "embedding", "query": query_vector}],
+    filter={"dialogue": {"$match_phrase": "look out"}},
+)
+```
+
+**Blog post insight:** A single index holds all three signal types. The key lesson: Pinecone picks one ranker per query, but you can chain: FTS/sparse filters narrow the candidate set, then dense vector re-ranks for semantic relevance. Dense retrieves conceptually similar scenes; sparse/FTS catches exact names, sound effects (KAPOW!), specific dialogue.
 
 ---
 
 ## Notebook 05 — Story Builder Demo
 
-**Core demo:** Cross-namespace comparison + narrative assembly
+**Core demo:** Two sections in one notebook.
 
-**Step 1 — Comparison view:**
-- User types: `"detective discovers a clue"`
-- Query is sent to ALL 3 namespaces simultaneously
-- Results shown side-by-side (3 columns, top-5 each)
-- Visualize: display thumbnail, comic title, page num, match score
+**Section 1 — Cross-namespace comparison view:**
+- User types one query: e.g. `"detective discovers a clue"`
+- Same query sent to all 3 namespaces simultaneously (parallel calls)
+- Results displayed side-by-side: 3 columns (ns-text-caption | ns-image-clip | ns-hybrid), top-5 each
+- Each result shows: thumbnail, comic title, page num, match score
+- Purpose: show readers concretely how the same query returns different results depending on embedding strategy
 
-**Step 2 — Narrative assembler (multi-step):**
+**Section 2 — Narrative assembler:**
 ```
-Query 1 (setup):    "detective arrives at crime scene"
-Query 2 (conflict): "villain threatens the hero"  
-Query 3 (climax):   "dramatic fight or confrontation"
+Query 1 (setup):      "detective arrives at crime scene"
+Query 2 (conflict):   "villain threatens the hero"
+Query 3 (climax):     "dramatic fight or confrontation"
 Query 4 (resolution): "hero wins, villain defeated"
 ```
-Each query retrieves the best matching page from the index. Display the 4 pages in sequence — a new "story" assembled from pages across multiple different comics.
+- Each query fetches top-1 page from `ns-hybrid` (best all-round namespace)
+- Deduplicate: if two queries return the same page, fetch next best
+- Display the 4 pages in sequence as a 2×2 image grid with caption: comic title + page num
+- Output: a brand new "story" assembled from panels across multiple comics
 
-**Output:** An inline IPython display of the assembled story as a 2×2 or 4×1 image grid with captions (comic title + page num).
+**Output format:** Inline IPython `display(Image(...))` grid — no external UI needed, renders directly in the notebook.
 
 ---
 
@@ -208,9 +263,9 @@ Each query retrieves the best matching page from the index. Display the 4 pages 
 
 ## Key Technical Decisions
 
-1. **Pinecone index type for dense + FTS:** Need to verify if Pinecone supports both in a single index (preview API). If not, use separate indexes and merge results client-side.
+1. **Pinecone index type for dense + FTS:** ✅ Confirmed — a single hybrid index via `SchemaBuilder` supports dense + sparse + FTS fields. One ranking signal per query; use text-match filters + vector ranking as the "hybrid" pattern.
 
-2. **Image model:** Default to Voyage AI `voyage-multimodal-3`. If readers prefer open-source, include a note pointing to Jina CLIP v2 via HuggingFace Inference API as an alternative.
+2. **Image model:** ✅ Confirmed — Voyage AI `voyage-multimodal-3`. Requires `VOYAGE_API_KEY`. Include Jina CLIP v2 as a free open-source footnote for readers who want no extra API key.
 
 3. **LLM for captions:** Use `claude-haiku-4-5-20251001` (fast + cheap). Prompt should be consistent and reproducible — include it verbatim in the notebook for transparency.
 
