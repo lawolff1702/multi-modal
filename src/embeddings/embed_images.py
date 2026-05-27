@@ -15,7 +15,11 @@ FAILURES_PATH = Path("data/comics/processed/image_embedding_failures.csv")
 
 _MODEL_NAME = os.environ.get("IMAGE_EMBED_MODEL", "open_clip_ViT-B-32")
 _ARCH = _MODEL_NAME.replace("open_clip_", "")
-_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+_DEVICE = (
+    "mps" if torch.backends.mps.is_available()
+    else "cuda" if torch.cuda.is_available()
+    else "cpu"
+)
 
 _model, _, _preprocess = open_clip.create_model_and_transforms(_ARCH, pretrained="openai")
 _model.eval()
@@ -41,7 +45,14 @@ def embed_text_query(text: str) -> list[float]:
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--limit", type=int, default=None, help="Cap number of panels to embed (for dry runs)")
+    args = parser.parse_args()
+
     manifest = pd.read_parquet(MANIFEST_PATH)
+    if args.limit:
+        manifest = manifest.head(args.limit)
     print(f"Embedding {len(manifest)} panels with {_ARCH} on {_DEVICE}")
 
     rows = []
