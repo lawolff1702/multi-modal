@@ -1,0 +1,28 @@
+pinecone:
+  index_name: comic-panels
+  namespace: comics-v1
+
+dense_embedding:
+  model_name: open_clip_ViT-B-32
+  field_name: image_dense
+  dimension: 512
+  metric: cosine
+
+sparse_embedding:
+  model_name: pinecone-sparse-english-v0
+  field_name: text_sparse
+  source_text_field: search_text
+
+fields:
+  dense_vector: image_dense
+  sparse_vector: text_sparse
+  fts_text:
+    - ocr_text
+    - search_text
+
+data:
+  comics_data_dir: data/comics
+  manifest_path: data/comics/processed/panels_manifest.parquet
+  dense_vectors_path: data/comics/processed/image_dense_vectors.parquet
+  sparse_vectors_path: data/comics/processed/text_sparse_vectors.parquet
+  pinecone_documents_path: data/comics/processed/pinecone_documents.jsonl

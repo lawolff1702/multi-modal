@@ -1,11 +1,13 @@
 pinecone>=6.0.0
-anthropic>=0.40.0
-voyageai>=0.3.0
+open-clip-torch>=2.20.0
+torch>=2.0.0
 pillow>=10.0.0
 requests>=2.31.0
 python-dotenv>=1.0.0
 pandas>=2.0.0
+pyarrow>=14.0.0
 tqdm>=4.66.0
 ipython>=8.0.0
 matplotlib>=3.7.0
 jupyter>=1.0.0
+pyyaml>=6.0
