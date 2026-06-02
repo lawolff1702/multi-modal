@@ -108,7 +108,7 @@ config.yaml               # Model and field configuration
 
 `config.yaml` controls the embedding model, index name, namespace, and field names. If you change `dense_embedding.dimension`, update it before running `create_index.py`.
 
-Default dense model: `open_clip_ViT-B-32` (512-dim, cosine).
+Default dense model: `open_clip_ViT-B-16` (512-dim, cosine).
 
 ## Data model
 
