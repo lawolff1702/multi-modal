@@ -122,6 +122,8 @@ st.markdown("""
   [data-testid="stNumberInput"] > div,
   [data-testid="stMultiSelect"] > div,
   [data-testid="stExpander"],
+  [data-testid="stExpander"] details,
+  [data-testid="stExpander"] summary,
   [data-testid="stAlert"] { border-radius: 2px !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -265,7 +267,7 @@ def _card(hit: dict, rank: int, show_fields: list):
 # ── example queries ───────────────────────────────────────────────────────────
 
 EXAMPLES = {
-    "🎨 Visual (Dense)": [
+    "Visual (Dense)": [
         ("Hero flying",             "hero in cape flying through sky"),
         ("Fistfight",               "two men punching fighting brawl"),
         ("Explosion",               "explosion fire destruction chaos"),
@@ -279,7 +281,7 @@ EXAMPLES = {
         ("Woman captured",          "woman captured tied up danger"),
         ("Man with gun",            "man pointing gun threatening"),
     ],
-    "🔤 Keyword (Sparse)": [
+    "Keyword (Sparse)": [
         ("Secret formula",          "secret formula"),
         ("Help / danger",           "help me danger"),
         ("Villain escape",          "villain escape capture"),
@@ -289,13 +291,13 @@ EXAMPLES = {
         ("Crime mystery",           "crime mystery clue evidence"),
         ("Space adventure",         "space adventure rocket planet"),
     ],
-    "💥 Sound effects (FTS)": [
+    "Sound effects (FTS)": [
         ("POW / BANG / ZAP",        "BANG OR POW OR ZAP"),
         ("KAPOW / WHAM / CRASH",    "KAPOW OR WHAM OR CRASH"),
         ("BOOM / BLAST",            "BOOM OR BLAST OR KA-BOOM"),
         ("THUD / SMASH",            "THUD OR CRUNCH OR SMASH"),
     ],
-    "💬 Phrases (FTS)": [
+    "Phrases (FTS)": [
         ('"secret formula"',        '"secret formula"'),
         ('"great danger"',          '"great danger"'),
         ("detective AND murder",    "detective AND murder"),
@@ -303,6 +305,17 @@ EXAMPLES = {
         ("danger AND rescue",       "danger AND rescue"),
     ],
 }
+
+# Combined examples — each fires multiple signals at once (fused with RRF).
+# Each entry maps signal name → query text for that signal.
+COMBINED_EXAMPLES = [
+    ("Explosion + BOOM",         {"dense": "explosion fire destruction chaos", "fts": "BOOM OR BLAST OR KA-BOOM"}),
+    ("Fight + POW",              {"dense": "two men punching fighting brawl",   "fts": "POW OR WHAM OR BAM"}),
+    ("Villain + escape phrase",  {"dense": "villain sinister evil grin",        "sparse": "villain escape capture"}),
+    ("Scientist + formula",      {"dense": "scientist laboratory chemicals",    "fts": '"secret formula"'}),
+    ("Detective + murder",       {"dense": "detective investigating crime scene", "sparse": "crime mystery clue evidence", "fts": "detective AND murder"}),
+    ("Rescue + danger",          {"dense": "hero rescuing woman from danger",   "sparse": "help me danger", "fts": "danger AND rescue"}),
+]
 
 # ── session state ─────────────────────────────────────────────────────────────
 
@@ -344,6 +357,19 @@ def _use_example(query: str, signal: str):
     else:
         st.session_state.fts_on = True
         st.session_state.fts_q  = query
+    st.session_state.run = True
+
+def _use_combined(queries: dict):
+    """on_click callback for multi-signal examples — enables each signal in the dict."""
+    st.session_state.dense_on  = "dense"  in queries
+    st.session_state.sparse_on = "sparse" in queries
+    st.session_state.fts_on    = "fts"    in queries
+    if "dense" in queries:
+        st.session_state.dense_q  = queries["dense"]
+    if "sparse" in queries:
+        st.session_state.sparse_q = queries["sparse"]
+    if "fts" in queries:
+        st.session_state.fts_q    = queries["fts"]
     st.session_state.run = True
 
 # ── header ────────────────────────────────────────────────────────────────────
@@ -440,7 +466,13 @@ with left:
     st.divider()
 
     # ── Examples ──────────────────────────────────────────────────────────
-    with st.expander("💡 Example queries"):
+    with st.expander("Example queries"):
+        st.markdown('<p class="section-label" style="margin:8px 0 4px">Combined (Hybrid · RRF)</p>',
+                    unsafe_allow_html=True)
+        for label, queries in COMBINED_EXAMPLES:
+            st.button(label, key=f"ex·combo·{label}", use_container_width=True,
+                      on_click=_use_combined, args=(queries,))
+
         for category, items in EXAMPLES.items():
             st.markdown(f'<p class="section-label" style="margin:8px 0 4px">{category}</p>',
                         unsafe_allow_html=True)
