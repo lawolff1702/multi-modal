@@ -10,11 +10,23 @@ _INCLUDE_FIELDS = [
 ]
 
 
-def search_fts(index, namespace: str, query: str, top_k: int = 20, filters: dict | None = None) -> dict:
+def search_fts(
+    index,
+    namespace: str,
+    query: str,
+    top_k: int = 20,
+    filters: dict | None = None,
+    fts_type: str = "query_string",
+) -> dict:
+    if fts_type == "query_string":
+        score_by = [{"type": "query_string", "query": query}]
+    else:
+        score_by = [{"type": "text", "field": "search_text", "query": query}]
+
     response = index.documents.search(
         namespace=namespace,
         top_k=top_k,
-        score_by=[{"type": "text", "field": "search_text", "query": query}],
+        score_by=score_by,
         filter=filters or {},
         include_fields=_INCLUDE_FIELDS,
     )

@@ -30,7 +30,7 @@ st.markdown("""
   .rc {
     background: #fff;
     border: 1px solid #e5e5e5;
-    border-radius: 8px;
+    border-radius: 2px;
     padding: 18px 20px;
     display: grid;
     grid-template-columns: 62px 1fr;
@@ -39,42 +39,44 @@ st.markdown("""
   }
   .rc:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.07); }
   .rc-left {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    padding-top: 2px;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 8px; padding-top: 2px;
   }
   .rc-rank {
     width: 40px; height: 40px;
-    background: rgba(0,43,255,0.05);
-    border-radius: 6px;
+    background: rgba(0,43,255,0.05); border-radius: 2px;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 15px; color: #0a0a0a;
-    flex-shrink: 0;
+    font-weight: 700; font-size: 15px; color: #0a0a0a; flex-shrink: 0;
   }
   .rc-score-lbl {
     font-size: 10px; font-weight: 600; text-transform: uppercase;
     letter-spacing: 0.06em; color: #737373; text-align: center;
   }
-  .rc-score-val {
-    font-family: monospace; font-size: 12px;
-    color: #0a0a0a; text-align: center;
-  }
+  .rc-score-val { font-family: monospace; font-size: 12px; color: #0a0a0a; text-align: center; }
   .rc-tag {
     font-size: 10px; background: rgba(0,43,255,0.06);
-    color: #002BFF; border-radius: 4px;
-    padding: 2px 5px; font-weight: 600;
-    display: inline-block; margin: 1px;
+    color: #002BFF; border-radius: 2px;
+    padding: 2px 5px; font-weight: 600; display: inline-block; margin: 1px;
   }
-  .rc-right {
-    display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  .rc-right { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+  /* "See more like this" button — top of right column, styled as a link */
+  div[data-testid="stHorizontalBlock"]:has(.rc) > div[data-testid="column"]:last-child button {
+    background: none !important; border: none !important;
+    box-shadow: none !important; padding: 0 !important;
+    min-height: unset !important; height: auto !important;
+  }
+  div[data-testid="stHorizontalBlock"]:has(.rc) > div[data-testid="column"]:last-child button p {
+    color: #002BFF !important; text-decoration: underline !important;
+    font-size: 12px !important; white-space: nowrap !important; margin: 0 !important;
+  }
+  div[data-testid="stHorizontalBlock"]:has(.rc) > div[data-testid="column"]:last-child button:hover p {
+    color: #0020CC !important;
   }
   .rc-img {
-    max-width: 100%; max-height: 200px;
+    max-width: 100%; max-height: 65vh;
     width: auto; height: auto;
-    object-fit: contain; border-radius: 4px;
-    display: block; background: #f5f5f5;
+    border-radius: 2px; display: block;
   }
   .rc-id {
     font-family: monospace; font-size: 13px;
@@ -109,6 +111,18 @@ st.markdown("""
     text-transform: uppercase; letter-spacing: 0.08em;
     color: #737373; margin: 0;
   }
+
+  /* disable typing in all selectboxes — click still opens the dropdown */
+  div[data-testid="stSelectbox"] input { pointer-events: none; }
+
+  /* uniform 3px radius across all native Streamlit components */
+  button, input, textarea, select,
+  [data-testid="stTextInput"] > div,
+  [data-testid="stSelectbox"] > div > div,
+  [data-testid="stNumberInput"] > div,
+  [data-testid="stMultiSelect"] > div,
+  [data-testid="stExpander"],
+  [data-testid="stAlert"] { border-radius: 2px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -149,7 +163,7 @@ def _b64(path: str) -> str | None:
         if not p.is_absolute():
             p = ROOT / p
         img = Image.open(p).convert("RGB")
-        scale = min(1.0, 500 / img.width)
+        scale = min(1.0, 900 / img.width)
         img = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
         buf = BytesIO()
         img.save(buf, "JPEG", quality=82)
@@ -213,7 +227,7 @@ def _build_filters() -> dict:
     return {}
 
 def _card(hit: dict, rank: int, show_fields: list):
-    score   = hit.get("_score") or hit.get("rrf_score") or 0.0
+    score   = hit.get("rrf_score") or hit.get("_score") or 0.0
     sources = hit.get("sources") or []
     hit_id  = _esc(str(hit.get("_id", "—")))
 
@@ -295,15 +309,29 @@ EXAMPLES = {
 for k, v in {
     "fts_on": True, "dense_on": False, "sparse_on": False,
     "fts_q": "*", "dense_q": "", "sparse_q": "",
-    "fts_type": "Query string",
+    "fts_type": "query_string",
     "top_k": 20, "exclude_ads": True,
     "filter_rows": [], "filter_next_id": 0, "filter_combinator": "And",
     "show_fields": ["ocr_text"],
+    "_similar_vec": None, "_similar_id": None,
     "results": None, "result_meta": {},
     "run": False,
 }.items():
     st.session_state.setdefault(k, v)
 
+
+def _use_similar(hit_id: str):
+    try:
+        result = _index().documents.fetch(ids=[hit_id], namespace=NAMESPACE)
+        vec = result.documents[hit_id].get("image_dense")
+        if not vec:
+            raise ValueError("No dense vector stored for this record")
+        st.session_state["_similar_vec"] = vec
+        st.session_state["_similar_id"]  = hit_id
+        st.session_state.dense_on        = True
+        st.session_state.run             = True
+    except Exception as exc:
+        st.session_state.result_meta = {"error": f"Could not fetch vector: {exc}"}
 
 def _use_example(query: str, signal: str):
     """on_click callback — runs before rerun so widget keys can be set safely."""
@@ -334,8 +362,11 @@ with left:
     # Full-text
     fts_on = st.toggle("Full-text search", key="fts_on")
     if fts_on:
-        st.selectbox("Type", ["Query string", "BM25 (text)"], key="fts_type",
-                     label_visibility="collapsed")
+        st.selectbox(
+            "FTS type", ["query_string", "text"], key="fts_type",
+            label_visibility="collapsed",
+            help="query_string: multi-field Lucene syntax (AND/OR/phrases)  ·  text: BM25 on a single field",
+        )
         st.text_input(
             "fts_query", key="fts_q", label_visibility="collapsed",
             placeholder='"phrase" OR keyword  ·  BANG OR POW  ·  field AND value',
@@ -446,11 +477,20 @@ if st.session_state.run:
         from src.search.search_fts    import search_fts
         from src.search.fusion        import rrf_merge
 
+        sim_vec = st.session_state.get("_similar_vec")
+        sim_id  = st.session_state.get("_similar_id")
+        if sim_vec is not None:
+            st.session_state["_similar_vec"] = None
+            st.session_state["_similar_id"]  = None
+
         groups, error = [], None
         try:
-            if dense_on and st.session_state.dense_q.strip():
-                from src.embeddings.embed_images import embed_text_query
-                vec = embed_text_query(st.session_state.dense_q.strip())
+            if dense_on and (sim_vec is not None or st.session_state.dense_q.strip()):
+                if sim_vec is not None:
+                    vec = sim_vec
+                else:
+                    from src.embeddings.embed_images import embed_text_query
+                    vec = embed_text_query(st.session_state.dense_q.strip())
                 r = search_dense(idx, NAMESPACE, vec, top_k=top_k, filters=filters)
                 groups.append(("dense", r.get("result", {}).get("hits", [])))
 
@@ -463,7 +503,8 @@ if st.session_state.run:
 
             if fts_on and st.session_state.fts_q.strip():
                 r = search_fts(idx, NAMESPACE, st.session_state.fts_q.strip(),
-                               top_k=top_k, filters=filters)
+                               top_k=top_k, filters=filters,
+                               fts_type=st.session_state.fts_type)
                 groups.append(("fts", r.get("result", {}).get("hits", [])))
 
         except Exception as exc:
@@ -476,8 +517,10 @@ if st.session_state.run:
             st.session_state.results     = []
             st.session_state.result_meta = {"info": "No query text provided for the enabled signals."}
         else:
-            merged = rrf_merge(groups) if len(groups) > 1 else groups[0][1]
+            merged = rrf_merge(groups)
             src    = "hybrid · RRF" if len(groups) > 1 else groups[0][0]
+            if sim_id:
+                src = f"similar to {sim_id} · {src}"
             st.session_state.results     = merged[:top_k]
             st.session_state.result_meta = {"source": src, "top_k": top_k}
 
@@ -508,4 +551,14 @@ with right:
         )
         show_fields = st.session_state.show_fields or SHOW_FIELDS
         for i, hit in enumerate(results, 1):
-            _card(hit, i, show_fields)
+            c_card, c_sim = st.columns([10, 2])
+            with c_card:
+                _card(hit, i, show_fields)
+            with c_sim:
+                if hit.get("_id"):
+                    st.button(
+                        "See more like this...",
+                        key=f"sim_{i}_{hit['_id']}",
+                        on_click=_use_similar,
+                        args=(hit["_id"],),
+                    )

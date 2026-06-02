@@ -14,6 +14,10 @@ def rrf_merge(result_groups: list[tuple[str, list]], k: int = 60) -> list[dict]:
         List of hit dicts sorted by descending rrf_score, with a 'sources' key
         added to each hit indicating which signals returned it.
     """
+    if len(result_groups) == 1:
+        source_name, hits = result_groups[0]
+        return [dict(h, sources=[source_name]) for h in hits]
+
     scores: dict[str, float] = {}
     payloads: dict[str, dict] = {}
 

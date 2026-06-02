@@ -171,13 +171,6 @@ def main():
         panel_id = meta["panel_id"]
 
         ocr_text_raw = ocr_lookup.get(panel_id, "")
-        if not ocr_text_raw and meta["comic_id"] and meta["page_num"] is not None:
-            # Try zero-padded fallback keys
-            for fmt in [f"{meta['comic_id']}:{meta['page_num']:04d}:{meta['panel_num']:04d}"]:
-                if fmt in ocr_lookup:
-                    ocr_text_raw = ocr_lookup[fmt]
-                    break
-
         if not ocr_text_raw:
             unmatched_images.append(str(image_path))
 
