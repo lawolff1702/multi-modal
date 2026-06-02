@@ -12,10 +12,20 @@ SPARSE_PATH = PROCESSED_DIR / "text_sparse_vectors.parquet"
 OUTPUT_PATH = PROCESSED_DIR / "pinecone_documents.jsonl"
 
 
+def to_list(val) -> list:
+    """Convert numpy array or other sequence to a plain Python list."""
+    import numpy as np
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    return list(val)
+
+
 def valid_sparse(sparse) -> bool:
     if not isinstance(sparse, dict):
         return False
-    return bool(sparse.get("indices")) and bool(sparse.get("values"))
+    indices = sparse.get("indices")
+    values = sparse.get("values")
+    return indices is not None and len(indices) > 0 and values is not None and len(values) > 0
 
 
 def main():
@@ -37,7 +47,7 @@ def main():
         for row in df.itertuples(index=False):
             doc: dict = {
                 "_id": row.panel_id,
-                "image_dense": row.image_dense,
+                "image_dense": to_list(row.image_dense),
                 "ocr_text": row.ocr_text_clean or "",
                 "search_text": row.search_text or "",
                 "comic_id": row.comic_id,
@@ -52,7 +62,10 @@ def main():
 
             sparse_vec = getattr(row, "text_sparse", None)
             if valid_sparse(sparse_vec):
-                doc["text_sparse"] = sparse_vec
+                doc["text_sparse"] = {
+                    "indices": to_list(sparse_vec["indices"]),
+                    "values": to_list(sparse_vec["values"]),
+                }
 
             f.write(json.dumps(doc) + "\n")
             count += 1

@@ -104,6 +104,10 @@ def build_ocr_lookup(ocr_df: pd.DataFrame) -> dict[str, str]:
 
     print(f"  Using columns: book={book_col}, page={page_col}, panel={panel_col}, text={text_col}")
 
+    # Aggregate all textbox texts per panel (CSV has one row per textbox)
+    from collections import defaultdict
+    panel_texts: dict[str, list[str]] = defaultdict(list)
+
     for row in ocr_df.itertuples(index=False):
         book = str(getattr(row, book_col)).strip()
         try:
@@ -111,15 +115,23 @@ def build_ocr_lookup(ocr_df: pd.DataFrame) -> dict[str, str]:
             panel = int(getattr(row, panel_col))
         except (ValueError, TypeError):
             continue
-        text = str(getattr(row, text_col)) if getattr(row, text_col, None) is not None else ""
-        key = f"{book}:{page}:{panel}"
-        lookup[key] = text
+        val = getattr(row, text_col, None)
+        if val is not None and str(val).strip() and str(val).lower() != "nan":
+            panel_texts[f"{book}:{page}:{panel}"].append(str(val).strip())
+
+    for key, texts in panel_texts.items():
+        lookup[key] = " ".join(texts)
 
     print(f"  OCR lookup entries: {len(lookup)}")
     return lookup
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--limit", type=int, default=None, help="Cap number of panels (for dry runs)")
+    args = parser.parse_args()
+
     panel_dir = RAW_DIR / "raw_panel_images"
     ocr_path = RAW_DIR / "COMICS_ocr_file.csv"
     ad_pages_path = RAW_DIR / "predadpages.txt"
@@ -138,6 +150,9 @@ def main():
         if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png"}
     )
     print(f"Found {len(panel_paths)} panel images")
+    if args.limit:
+        panel_paths = panel_paths[:args.limit]
+        print(f"Limiting to {len(panel_paths)} panels (--limit {args.limit})")
 
     ocr_lookup: dict[str, str] = {}
     if ocr_path.exists():

@@ -11,13 +11,14 @@ _INCLUDE_FIELDS = [
 
 
 def search_dense(index, namespace: str, query_vector: list[float], top_k: int = 20, filters: dict | None = None) -> dict:
-    return index.documents.search(
+    response = index.documents.search(
         namespace=namespace,
         top_k=top_k,
         score_by=[{"type": "dense_vector", "field": "image_dense", "values": query_vector}],
         filter=filters or {},
         include_fields=_INCLUDE_FIELDS,
     )
+    return {"result": {"hits": [h.to_dict() for h in response.matches]}}
 
 
 def search_dense_with_phrase_filter(
@@ -30,13 +31,14 @@ def search_dense_with_phrase_filter(
 ) -> dict:
     merged_filter = dict(filters) if filters else {}
     merged_filter["search_text"] = {"$match_phrase": phrase}
-    return index.documents.search(
+    response = index.documents.search(
         namespace=namespace,
         top_k=top_k,
         score_by=[{"type": "dense_vector", "field": "image_dense", "values": query_vector}],
         filter=merged_filter,
         include_fields=_INCLUDE_FIELDS,
     )
+    return {"result": {"hits": [h.to_dict() for h in response.matches]}}
 
 
 def main():

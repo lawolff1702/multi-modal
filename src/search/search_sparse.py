@@ -11,13 +11,14 @@ _INCLUDE_FIELDS = [
 
 
 def search_sparse(index, namespace: str, query_sparse: dict, top_k: int = 20, filters: dict | None = None) -> dict:
-    return index.documents.search(
+    response = index.documents.search(
         namespace=namespace,
         top_k=top_k,
         score_by=[{"type": "sparse_vector", "field": "text_sparse", "sparse_values": query_sparse}],
         filter=filters or {},
         include_fields=_INCLUDE_FIELDS,
     )
+    return {"result": {"hits": [h.to_dict() for h in response.matches]}}
 
 
 def main():

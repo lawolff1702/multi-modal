@@ -51,10 +51,10 @@ def validate_search(index) -> None:
         score_by=[{"type": "dense_vector", "field": "image_dense", "values": dummy_vector}],
         include_fields=["panel_id", "comic_id", "page_num"],
     )
-    hits = results.get("result", {}).get("hits", [])
+    hits = results.matches
     print(f"Validation search returned {len(hits)} hits")
     for h in hits:
-        print(f"  {h.get('_id')} score={h.get('_score'):.4f}")
+        print(f"  {h.id} score={h.score:.4f}")
 
 
 def main():

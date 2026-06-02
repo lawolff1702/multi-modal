@@ -3,7 +3,7 @@ pinecone:
   namespace: comics-v1
 
 dense_embedding:
-  model_name: open_clip_ViT-B-32
+  model_name: open_clip_ViT-B-16
   field_name: image_dense
   dimension: 512
   metric: cosine
