@@ -1,4 +1,4 @@
-# One Index, Four Signals: Multi-Modal Search Over a Million Comic Panels with Pinecone
+# One Index, Three Signals: Multi-Modal Search Over a Million Comic Panels with Pinecone
 
 Comic panels are an unusually honest multi-modal problem. Every panel is three things at once: a **picture** (the art), a **block of text** (the dialogue and captions, recovered via OCR), and a **position** (which book, which page, which panel, ad or story). If you want to search a comics archive the way a reader actually thinks, you need to support all of it:
 
@@ -7,7 +7,7 @@ Comic panels are an unusually honest multi-modal problem. Every panel is three t
 - *"secret formula"* — the exact words spoken in a panel.
 - *"villain AND laboratory"* — keyword filtering with boolean logic.
 
-I built exactly that over the [COMICS dataset](https://github.com/miyyer/comics) — **1,229,664 panels** — and the whole thing runs on a *single* Pinecone document-schema index. No separate vector store bolted onto a separate search cluster bolted onto a metadata DB. One record per panel, four retrieval signals living side by side.
+I built exactly that over the [COMICS dataset](https://github.com/miyyer/comics) — **1,229,664 panels** — and the whole thing runs on a *single* Pinecone document-schema index. No separate vector store bolted onto a separate search cluster bolted onto a metadata DB. One record per panel, three retrieval signals living side by side — dense vectors, sparse vectors, and full-text — which between them cover all four query modes above (the dense signal serves both image-to-image and text-to-image).
 
 This post walks through how each signal works, why full-text search earns its place next to the vectors, and how Reciprocal Rank Fusion stitches them into one ranked list.
 
@@ -72,18 +72,13 @@ def embed_text_query(text):
 
 Same model (OpenCLIP ViT-B/16, OpenAI weights), same normalization, two different `encode_*` calls. "A detective in a dark alley" comes out as a vector that sits near panels depicting exactly that — even though no panel was ever labeled "detective." And image-to-image search is free: just reuse a stored panel's vector as the query.
 
-A couple of production notes baked into the embedder:
-
-- **Device handling** — it picks `mps` on Apple silicon, `cuda` on an NVIDIA box, `cpu` otherwise. Embedding a million images, you want the accelerator.
-- **Resumable chunking** — panels are processed in chunks of 10k, each written to its own parquet file. A crash at panel 900k doesn't re-embed the first 900k.
-
 What dense is *good* at: visual and semantic similarity, fuzzy intent, cross-modal queries. What it's *bad* at: exact words, rare proper nouns, sound effects. Cosine similarity smears those into the nearest semantic neighborhood. Which is why we don't stop at dense.
 
 ## Signal 2: learned sparse vectors
 
 A sparse vector is the opposite shape from a dense one: very high-dimensional, almost entirely zeros, with nonzero weights only on the dimensions that correspond to meaningful terms. Classic BM25 is sparse with hand-tuned term weights; `pinecone-sparse-english-v0` is a *learned* sparse model — think of it as a neural BM25 that has learned which terms actually carry signal. It keeps the precision of keyword matching while being smarter about term importance.
 
-We run it over the OCR dialogue, through Pinecone's inference API, in the same resumable-chunk style:
+We run it over the OCR dialogue, through Pinecone's inference API:
 
 ```python
 response = pc.inference.embed(
@@ -100,11 +95,11 @@ Why bother, when we already have dense? Because dialogue keywords — *laborator
 
 One thing worth saying out loud: **OCR is noisy**, and garbage tokens in means garbage weights out. A conservative cleaning pass runs before any text becomes a sparse vector or a full-text field. Cleaning quality upstream is doing as much for retrieval quality as the model choice.
 
-## Signal 3: Pinecone full-text search (the underrated leg)
+## Signal 3: Pinecone full-text search
 
 Here's the case neither dense nor sparse handles well: the user knows the *exact words*. They want the panel where someone says `"secret formula"` — the literal phrase, not the semantic neighborhood of formulas. Or they want `formula AND detective` with boolean logic. Or they're hunting a sound effect like `BANG`. Vector search quietly gets these wrong; it returns plausibly-similar panels instead of the right one.
 
-Full-text search is what makes the system *trustworthy* for those queries. Because we declared `ocr_text` and `search_text` as full-text fields in the schema, Pinecone indexes them for BM25-scored text retrieval, and we query them through the same `documents.search` endpoint:
+Declaring `ocr_text` and `search_text` as full-text fields in the schema unlocks three distinct capabilities, and it's worth being clear about all three because they do different jobs. The first two are *scoring* modes you pass to `score_by`; the third is *filtering*. All of them run through the same `documents.search` endpoint:
 
 ```python
 def search_fts(index, namespace, query, top_k=20, filters=None, fts_type="query_string"):
@@ -123,14 +118,35 @@ def search_fts(index, namespace, query, top_k=20, filters=None, fts_type="query_
     return {"result": {"hits": [h.to_dict() for h in response.matches]}}
 ```
 
-There are two scoring modes, and the distinction matters:
+**1. BM25 free-text scoring (`text` mode).** Point it at a single field with a plain string and you get classic BM25 relevance ranking — term frequency, inverse document frequency, length normalization. This is the workhorse for "rank panels by how well their dialogue matches these words" without any query grammar. It's forgiving of word order and handles natural phrases gracefully.
 
-- **`query_string`** — Lucene-style syntax. Phrases (`"secret formula"`), boolean operators (`formula AND detective`), multi-field matching. This is what you reach for when the user types operators.
-- **`text`** — straightforward BM25 over a single field. Free-text relevance ranking without the operator grammar.
+**2. Lucene query syntax (`query_string` mode).** The same field, but now the query string is a full query language. Exact phrases with quotes (`"secret formula"`), boolean operators (`formula AND detective`, `villain OR henchman`), negation (`hero NOT sidekick`), grouping, and multi-field matching — all parsed from one expression. This is what you reach for when the user is constructing a precise query rather than just describing a topic, and it's the mode that turns "I know roughly what was said" into "match this exact logical condition."
 
-And notice the `filter` argument sitting right alongside `score_by`. The query *"panels saying 'secret formula', excluding advertisements"* is one call: BM25 scoring plus `{"is_ad_page": False}` metadata filtering, no second round-trip. That co-location is the payoff of putting everything on one document.
+**3. Full-text filters as a hard prefilter.** Beyond scoring, the same full-text index backs a set of *filter* operators — and a filter constrains **any** search type, dense included. Because `ocr_text` is full-text indexed, you can write text-match conditions in the `filter` argument, exactly where you'd put a metadata condition:
 
-FTS is the leg people forget when they get excited about embeddings. It's the one that handles "I know exactly what I'm looking for."
+| Operator | Meaning |
+|---|---|
+| `$match_phrase` | the field contains this exact phrase |
+| `$match_all` | the field contains *all* of these terms |
+| `$match_any` | the field contains *any* of these terms |
+
+These compose with the ordinary comparison operators (`$eq`, `$in`, `$nin`, …) and with `$and` / `$or`, so a filter is an arbitrary boolean expression mixing text and metadata.
+
+This is the capability that ties the whole index together: it lets the text index act as a **hard prefilter on a dense search**. Suppose you want *"a panel that looks like a superhero mid-punch — but it **must** contain the sound effect POW, no exceptions."* Dense search alone can't promise the "no exceptions" part; cosine similarity will happily return a great-looking punch with no POW in it. So you do a dense query for the *look*, and bolt a full-text match on as a non-negotiable gate:
+
+```python
+filters = {
+    "$and": [
+        {"is_ad_page":  {"$eq": False}},          # metadata gate
+        {"ocr_text": {"$match_all": "POW"}},       # full-text gate — must contain POW
+    ]
+}
+
+vec = embed_text_query("a superhero mid-punch")    # CLIP: text → image space
+hits = search_dense(idx, namespace, vec, top_k=20, filters=filters)
+```
+
+The dense vector ranks by visual similarity; the `$match_all` condition removes every candidate that doesn't literally say POW *before* ranking. Same trick gives you "images like this *and* dialogue mentioning either `formula` or `serum`" (`$match_any`) or "this exact catchphrase" (`$match_phrase`). The full-text index isn't just a third way to rank — it's the constraint layer that makes the *other* signals precise.
 
 ## Fusing the signals with Reciprocal Rank Fusion
 
@@ -175,7 +191,7 @@ Image-to-image rides the same `dense` path — instead of encoding text, it reus
 
 ## The pipeline, end to end
 
-Ingestion is six idempotent, resumable stages:
+Ingestion is six stages:
 
 ```bash
 python -m src.ingest.build_manifest        # panels + cleaned OCR → manifest
@@ -186,15 +202,15 @@ python -m src.pinecone.build_documents      # join everything → JSONL
 python -m src.pinecone.upsert_panels        # batch upsert with retry
 ```
 
-Each stage writes its output to disk before the next depends on it, so the whole thing is restartable at every boundary — non-negotiable at a million-plus records. The join step is deliberately asymmetric: it **inner-joins** dense vectors (a panel with no art embedding has nothing to search on, so it's dropped) and **left-joins** sparse (a wordless panel — plenty of those in comics — keeps its document and stays findable by image). The result is one JSONL document per panel, exactly matching the schema, ready to upsert.
+The join step is deliberately asymmetric: it **inner-joins** dense vectors (a panel with no art embedding has nothing to search on, so it's dropped) and **left-joins** sparse (a wordless panel — plenty of those in comics — keeps its document and stays findable by image). The result is one JSONL document per panel, exactly matching the schema, ready to upsert.
 
 On top sits a Streamlit app: one search box, toggles for the three text signals plus image upload, metadata filters, and an RRF-merged result grid that shows which signals surfaced each panel.
 
 ## Takeaways
 
 - **Co-locate modalities on one record instead of federating systems.** A Pinecone document schema holds dense vectors, sparse vectors, full-text fields, and metadata together — independently queryable, jointly filterable, no cross-store ID reconciliation.
-- **The three signals are complementary, not competing.** Dense (CLIP) for visual and semantic intent, sparse for weighted keyword matching, full-text for exactness. FTS is the one teams under-use, and it's exactly what rescues "I know the precise words."
+- **The three signals are complementary, not competing.** Dense (CLIP) for visual and semantic intent, sparse for weighted keyword matching, full-text for exactness. And full-text does double duty: its `$match_phrase` / `$match_all` / `$match_any` operators act as a hard prefilter on *any* search, so you can demand "looks like this **and** literally contains these words."
 - **CLIP's shared embedding space is the cross-modal unlock.** Text and images become directly comparable, so a description retrieves a picture with no extra machinery.
 - **RRF is the cross-signal unlock.** Rank-based fusion makes incomparable score scales a non-issue and collapses multi-signal merging into a few lines.
 
-One index. Four signals. A million comic panels you can search by sight, by meaning, by keyword, or by exact quote.
+One index. Three signals. A million comic panels you can search by sight, by meaning, by keyword, or by exact quote.
