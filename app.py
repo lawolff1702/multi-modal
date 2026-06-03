@@ -73,6 +73,19 @@ st.markdown("""
   div[data-testid="stHorizontalBlock"]:has(.rc) > div[data-testid="column"]:last-child button:hover p {
     color: #0020CC !important;
   }
+  /* panel action buttons (See more / Find sounds): identical, centered */
+  div[class*="st-key-sim_"] button,
+  div[class*="st-key-snd_"] button {
+    width: 100% !important;
+  }
+  div[class*="st-key-sim_"] button p,
+  div[class*="st-key-snd_"] button p {
+    font-size: 14px !important;
+    white-space: normal !important;
+    text-align: center !important;
+    width: 100%;
+    margin: 0 auto !important;
+  }
   .rc-img {
     max-width: 100%; max-height: 65vh;
     width: auto; height: auto;
@@ -125,6 +138,19 @@ st.markdown("""
   [data-testid="stExpander"] details,
   [data-testid="stExpander"] summary,
   [data-testid="stAlert"] { border-radius: 2px !important; }
+
+  /* center the ✕ glyph in filter remove buttons */
+  div[class*="st-key-fr_"] button {
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 !important; min-width: 0 !important; width: 100% !important;
+  }
+  div[class*="st-key-fr_"] button > div {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 100%;
+  }
+  div[class*="st-key-fr_"] button p {
+    line-height: 1 !important; margin: 0 !important; text-align: center;
+  }
 </style>
 """, unsafe_allow_html=True)
 
@@ -156,6 +182,14 @@ def _index():
 def _load_clip():
     from src.embeddings.embed_images import _init_model
     _init_model()
+
+# The sound index is a SEPARATE, standard dense index (classic API), unlike the
+# comic-panels document-schema index above — see src/sounds/.
+@st.cache_resource(show_spinner="Connecting to sound index…")
+def _sound_index():
+    from pinecone import Pinecone
+    pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
+    return pc.Index(os.environ.get("PINECONE_SOUND_INDEX_NAME", "comic-sounds"))
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -192,6 +226,13 @@ def _add_filter():
 
 def _remove_filter(fid: int):
     st.session_state.filter_rows = [r for r in st.session_state.filter_rows if r != fid]
+
+def _clear_filters():
+    """Drop every filter row and its backing widget state — fresh slate for a new query."""
+    for fid in st.session_state.filter_rows:
+        for prefix in ("fk_", "fo_", "fv_"):
+            st.session_state.pop(f"{prefix}{fid}", None)
+    st.session_state.filter_rows = []
 
 def _build_filters() -> dict:
     row_conds = []
@@ -264,6 +305,39 @@ def _card(hit: dict, rank: int, show_fields: list):
   </div>
 </div>""", unsafe_allow_html=True)
 
+
+def _render_sounds(snd: dict) -> None:
+    """Render the sound-effect results stored for a panel (under its card)."""
+    if snd.get("error"):
+        st.error(f"Sound search failed: {snd['error']}")
+        return
+    packet = snd.get("packet")
+    if packet is None:
+        st.caption("No clear sound cue in this panel (no drawn SFX, no confident visual match).")
+        return
+
+    src = "drawn SFX (OCR)" if packet["source"] == "ocr" else "depicted content (CLIP tags · experimental)"
+    matched = ", ".join(packet["matched"])
+    matches = snd.get("matches") or []
+    with st.expander(f"Sounds · {matched} · via {src}", expanded=True):
+        st.caption(f"CLAP query: “{packet['sound_query']}”")
+        if not matches:
+            st.caption("No commercial-safe clips matched the filters.")
+            return
+        if matches[0]["score"] < 0.4:
+            st.caption("Weak matches — this is the 500-clip sample; the full 8,403-clip index will improve coverage.")
+        for m in matches:
+            md = m["md"]
+            labels = ", ".join(md.get("labels", [])[:4])
+            st.markdown(f"**{m['score']:.3f}** · {labels} · `{md.get('license')}` · {md.get('duration_sec')}s")
+            path = md.get("audio_path")
+            if path and Path(path).exists():
+                st.audio(path)
+            else:
+                st.caption("Audio file not available locally.")
+            if md.get("requires_attribution") and md.get("attribution"):
+                st.caption(f"Attribution: {md['attribution']}")
+
 # ── example queries ───────────────────────────────────────────────────────────
 
 EXAMPLES = {
@@ -271,37 +345,33 @@ EXAMPLES = {
         ("Hero flying",             "hero in cape flying through sky"),
         ("Fistfight",               "two men punching fighting brawl"),
         ("Explosion",               "explosion fire destruction chaos"),
-        ("Scientist in lab",        "scientist laboratory chemicals"),
-        ("Rocket in space",         "spaceship rocket outer space stars"),
-        ("Villain menacing",        "villain sinister evil grin"),
-        ("Romance",                 "couple romance embrace kissing"),
         ("Detective",               "detective investigating crime scene"),
-        ("Car chase",               "car chase street pursuit"),
-        ("Monster horror",          "monster creature attacking horror"),
-        ("Woman captured",          "woman captured tied up danger"),
-        ("Man with gun",            "man pointing gun threatening"),
+    ],
+    "Animals (Dense)": [
+        ("Elephant",                "elephant in the jungle"),
+        ("Horse riding",            "man riding a horse"),
+        ("Lion / big cat",          "lion roaring in the wild"),
+        ("Dog companion",           "dog sitting beside a person"),
+    ],
+    "Space / Alien (Dense)": [
+        ("Rocket in space",         "spaceship rocket outer space stars"),
+        ("Alien creature",          "alien creature from another planet"),
+        ("Astronaut",               "astronaut floating in space"),
+        ("Flying saucer",          "flying saucer UFO in the sky"),
     ],
     "Keyword (Sparse)": [
         ("Secret formula",          "secret formula"),
-        ("Help / danger",           "help me danger"),
         ("Villain escape",          "villain escape capture"),
-        ("Mysterious stranger",     "mysterious stranger"),
-        ("Great power",             "great power"),
-        ("Bank robbery",            "robbery bank heist money"),
         ("Crime mystery",           "crime mystery clue evidence"),
-        ("Space adventure",         "space adventure rocket planet"),
     ],
     "Sound effects (FTS)": [
         ("POW / BANG / ZAP",        "BANG OR POW OR ZAP"),
-        ("KAPOW / WHAM / CRASH",    "KAPOW OR WHAM OR CRASH"),
         ("BOOM / BLAST",            "BOOM OR BLAST OR KA-BOOM"),
         ("THUD / SMASH",            "THUD OR CRUNCH OR SMASH"),
     ],
     "Phrases (FTS)": [
         ('"secret formula"',        '"secret formula"'),
-        ('"great danger"',          '"great danger"'),
         ("detective AND murder",    "detective AND murder"),
-        ("villain AND escape",      "villain AND escape"),
         ("danger AND rescue",       "danger AND rescue"),
     ],
 }
@@ -310,11 +380,17 @@ EXAMPLES = {
 # Each entry maps signal name → query text for that signal.
 COMBINED_EXAMPLES = [
     ("Explosion + BOOM",         {"dense": "explosion fire destruction chaos", "fts": "BOOM OR BLAST OR KA-BOOM"}),
-    ("Fight + POW",              {"dense": "two men punching fighting brawl",   "fts": "POW OR WHAM OR BAM"}),
     ("Villain + escape phrase",  {"dense": "villain sinister evil grin",        "sparse": "villain escape capture"}),
-    ("Scientist + formula",      {"dense": "scientist laboratory chemicals",    "fts": '"secret formula"'}),
     ("Detective + murder",       {"dense": "detective investigating crime scene", "sparse": "crime mystery clue evidence", "fts": "detective AND murder"}),
-    ("Rescue + danger",          {"dense": "hero rescuing woman from danger",   "sparse": "help me danger", "fts": "danger AND rescue"}),
+]
+
+# Filter ($match_*) → dense pipeline: a native text-match filter narrows the
+# candidate set server-side, then the dense vector ranks what survives.
+# (field, match-operator, filter value, dense query)
+FILTER_DENSE_EXAMPLES = [
+    ("'formula' text → lab scene",   "search_text", "Match any", "formula chemical experiment", "scientist in a laboratory"),
+    ("'space' phrase → rocket art",  "search_text", "Match phrase", "outer space",              "spaceship rocket among the stars"),
+    ("'monster attack' → creature",  "search_text", "Match all", "monster attack",              "giant monster creature attacking"),
 ]
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -327,11 +403,31 @@ for k, v in {
     "filter_rows": [], "filter_next_id": 0, "filter_combinator": "And",
     "show_fields": ["ocr_text"],
     "_similar_vec": None, "_similar_id": None,
+    "_sounds": {},
     "results": None, "result_meta": {},
     "run": False,
 }.items():
     st.session_state.setdefault(k, v)
 
+
+def _find_sounds(hit_id: str):
+    """Find FSD50K sound effects for a panel: OCR onomatopoeia first, CLIP-tag
+    fallback, then CLAP search over the comic-sounds index."""
+    from src.sounds.search.panel_to_sound_query import panel_to_sound_query
+    from src.sounds.search.search_sounds_dense import search_sounds_dense
+    try:
+        doc = _index().documents.fetch(ids=[hit_id], namespace=NAMESPACE).documents[hit_id]
+        panel = {"ocr_text": doc.get("ocr_text"), "search_text": doc.get("search_text")}
+        packet = panel_to_sound_query(panel, image_vec=doc.get("image_dense"))
+        if packet is None:
+            st.session_state["_sounds"][hit_id] = {"packet": None}
+            return
+        res = search_sounds_dense(packet["sound_query"], top_k=6,
+                                  filters=packet["filters"], index=_sound_index())
+        matches = [{"id": m.id, "score": m.score, "md": m.metadata or {}} for m in res.matches]
+        st.session_state["_sounds"][hit_id] = {"packet": packet, "matches": matches}
+    except Exception as exc:
+        st.session_state["_sounds"][hit_id] = {"error": str(exc)}
 
 def _use_similar(hit_id: str):
     try:
@@ -339,6 +435,7 @@ def _use_similar(hit_id: str):
         vec = result.documents[hit_id].get("image_dense")
         if not vec:
             raise ValueError("No dense vector stored for this record")
+        _clear_filters()
         st.session_state["_similar_vec"] = vec
         st.session_state["_similar_id"]  = hit_id
         st.session_state.dense_on        = True
@@ -348,6 +445,7 @@ def _use_similar(hit_id: str):
 
 def _use_example(query: str, signal: str):
     """on_click callback — runs before rerun so widget keys can be set safely."""
+    _clear_filters()
     if signal == "dense":
         st.session_state.dense_on = True
         st.session_state.dense_q  = query
@@ -361,6 +459,7 @@ def _use_example(query: str, signal: str):
 
 def _use_combined(queries: dict):
     """on_click callback for multi-signal examples — enables each signal in the dict."""
+    _clear_filters()
     st.session_state.dense_on  = "dense"  in queries
     st.session_state.sparse_on = "sparse" in queries
     st.session_state.fts_on    = "fts"    in queries
@@ -370,6 +469,26 @@ def _use_combined(queries: dict):
         st.session_state.sparse_q = queries["sparse"]
     if "fts" in queries:
         st.session_state.fts_q    = queries["fts"]
+    st.session_state.run = True
+
+def _use_filter_dense(field: str, op: str, value: str, dense_query: str):
+    """on_click callback for $match_* → dense pipeline examples.
+
+    Replaces the filter rows with a single text-match filter and runs a
+    dense-only search, so the match operator narrows candidates server-side
+    and the dense vector ranks them.
+    """
+    _clear_filters()
+    fid = st.session_state.filter_next_id
+    st.session_state.filter_next_id += 1
+    st.session_state.filter_rows = [fid]
+    st.session_state[f"fk_{fid}"] = field
+    st.session_state[f"fo_{fid}"] = op
+    st.session_state[f"fv_{fid}"] = value
+    st.session_state.dense_on  = True
+    st.session_state.dense_q   = dense_query
+    st.session_state.sparse_on = False
+    st.session_state.fts_on    = False
     st.session_state.run = True
 
 # ── header ────────────────────────────────────────────────────────────────────
@@ -431,8 +550,8 @@ with left:
     for fid in st.session_state.filter_rows:
         op  = st.session_state.get(f"fo_{fid}", "==")
         op_w = max(2.0, min(3.2, len(op) * 0.25))
-        fv_w = (6.4 - op_w - 0.4) / 2
-        c1, c2, c3, c4 = st.columns([fv_w, op_w, fv_w, 0.4])
+        fv_w = (6.4 - op_w - 0.8) / 2
+        c1, c2, c3, c4 = st.columns([fv_w, op_w, fv_w, 0.8])
         with c1:
             st.text_input("Key", key=f"fk_{fid}",
                           label_visibility="collapsed", placeholder="field")
@@ -472,6 +591,12 @@ with left:
         for label, queries in COMBINED_EXAMPLES:
             st.button(label, key=f"ex·combo·{label}", use_container_width=True,
                       on_click=_use_combined, args=(queries,))
+
+        st.markdown('<p class="section-label" style="margin:8px 0 4px">Filter ($match_*) → Dense</p>',
+                    unsafe_allow_html=True)
+        for label, field, op, value, dense_q in FILTER_DENSE_EXAMPLES:
+            st.button(label, key=f"ex·fd·{label}", use_container_width=True,
+                      on_click=_use_filter_dense, args=(field, op, value, dense_q))
 
         for category, items in EXAMPLES.items():
             st.markdown(f'<p class="section-label" style="margin:8px 0 4px">{category}</p>',
@@ -594,3 +719,12 @@ with right:
                         on_click=_use_similar,
                         args=(hit["_id"],),
                     )
+                    st.button(
+                        "Find sounds",
+                        key=f"snd_{i}_{hit['_id']}",
+                        on_click=_find_sounds,
+                        args=(hit["_id"],),
+                    )
+            snd = st.session_state["_sounds"].get(hit.get("_id"))
+            if snd is not None:
+                _render_sounds(snd)

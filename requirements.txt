@@ -1,3 +1,4 @@
+streamlit>=1.40.0
 pinecone>=6.0.0
 open-clip-torch>=2.20.0
 torch>=2.0.0
@@ -11,3 +12,11 @@ ipython>=8.0.0
 matplotlib>=3.7.0
 jupyter>=1.0.0
 pyyaml>=6.0
+
+# FSD50K sound-effect index (CLAP). Audio is pulled per-file from the HF Hub
+# (huggingface_hub), NOT via `datasets` — Fhrozen/FSD50k uses a remote loader
+# script that does not run on datasets>=3.0 / Python 3.13.
+transformers>=4.40.0
+huggingface_hub>=0.23.0
+soundfile>=0.12.0
+soxr>=0.3.0
