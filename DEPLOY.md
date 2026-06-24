@@ -13,10 +13,12 @@ Nothing here needs a separate embedder service. The CLIP text encoder is small a
 ```bash
 aws s3 mb s3://YOUR_BUCKET --region us-east-1
 
-# Downscales to ~900px (the UI never shows larger) and sets immutable cache headers.
+# These panels are already small (~50KB avg, <=900px), so upload the originals as-is.
+# (--resize would re-encode at q82 and inflate them ~1.5x; only use it for large-image sets.)
+# Uploads set Content-Type and immutable Cache-Control headers either way.
 python scripts/upload_images_to_s3.py \
     --bucket YOUR_BUCKET --prefix panels --region us-east-1 \
-    --resize --workers 32
+    --workers 32
 ```
 
 Make the bucket readable either with a public-read bucket policy, or by putting a CloudFront distribution in front of it (recommended for caching). If you use CloudFront, note its domain for `IMAGE_CDN_BASE_URL` below. Object keys mirror the relative `image_path` stored in Pinecone, so no re-upsert is needed.
