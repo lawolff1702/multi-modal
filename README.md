@@ -1,3 +1,14 @@
+---
+title: Comic Panel Search
+emoji: 💥
+colorFrom: blue
+colorTo: indigo
+sdk: streamlit
+sdk_version: 1.40.0
+app_file: app.py
+pinned: false
+---
+
 # COMICS Panel Search
 
 Panel-level vector search over the [COMICS dataset](https://github.com/miyyer/comics) using Pinecone. Supports dense image search (OpenCLIP), sparse keyword search, full-text search over OCR text, and combined retrieval with Reciprocal Rank Fusion.
