@@ -1,18 +1,17 @@
 """Comic panel search UI."""
 
-import base64
 import os
 import sys
-from io import BytesIO
 from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
-from PIL import Image
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
+
+from src.storage.images import image_src
 
 st.set_page_config(
     page_title="Comic Panel Search",
@@ -170,7 +169,7 @@ _OP_MAP = {
     "Match all":    "$match_all",
     "Match any":    "$match_any",
 }
-ALL_FIELDS = ["comic_id", "book_id", "page_num", "panel_num", "source", "ocr_text", "image_path", "is_ad_page"]
+ALL_FIELDS = ["comic_id", "book_id", "page_id", "page_num", "panel_num", "source", "ocr_text", "search_text", "image_path", "is_ad_page"]
 
 @st.cache_resource(show_spinner="Connecting to Pinecone…")
 def _index():
@@ -192,20 +191,6 @@ def _sound_index():
     return pc.Index(os.environ.get("PINECONE_SOUND_INDEX_NAME", "comic-sounds"))
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-
-def _b64(path: str) -> str | None:
-    try:
-        p = Path(path)
-        if not p.is_absolute():
-            p = ROOT / p
-        img = Image.open(p).convert("RGB")
-        scale = min(1.0, 900 / img.width)
-        img = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
-        buf = BytesIO()
-        img.save(buf, "JPEG", quality=82)
-        return base64.b64encode(buf.getvalue()).decode()
-    except Exception:
-        return None
 
 def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -277,8 +262,8 @@ def _card(hit: dict, rank: int, show_fields: list):
     tags = "".join(f'<span class="rc-tag">{s}</span>' for s in sources)
 
     img_html = ""
-    if b64 := _b64(hit.get("image_path", "")):
-        img_html = f'<img class="rc-img" src="data:image/jpeg;base64,{b64}"/>'
+    if src := image_src(hit.get("image_path", "")):
+        img_html = f'<img class="rc-img" src="{src}" loading="lazy"/>'
 
     fields = ""
     for k in show_fields:
@@ -365,23 +350,23 @@ EXAMPLES = {
         ("Crime mystery",           "crime mystery clue evidence"),
     ],
     "Sound effects (FTS)": [
-        ("POW / BANG / ZAP",        "BANG OR POW OR ZAP"),
-        ("BOOM / BLAST",            "BOOM OR BLAST OR KA-BOOM"),
-        ("THUD / SMASH",            "THUD OR CRUNCH OR SMASH"),
+        ("POW / BANG / ZAP",        "search_text:(BANG OR POW OR ZAP)"),
+        ("BOOM / BLAST",            'search_text:(BOOM OR BLAST OR "KA-BOOM")'),
+        ("THUD / SMASH",            "search_text:(THUD OR CRUNCH OR SMASH)"),
     ],
     "Phrases (FTS)": [
-        ('"secret formula"',        '"secret formula"'),
-        ("detective AND murder",    "detective AND murder"),
-        ("danger AND rescue",       "danger AND rescue"),
+        ('"secret formula"',        'search_text:("secret formula")'),
+        ("detective AND murder",    "search_text:(detective AND murder)"),
+        ("danger AND rescue",       "search_text:(danger AND rescue)"),
     ],
 }
 
 # Combined examples — each fires multiple signals at once (fused with RRF).
 # Each entry maps signal name → query text for that signal.
 COMBINED_EXAMPLES = [
-    ("Explosion + BOOM",         {"dense": "explosion fire destruction chaos", "fts": "BOOM OR BLAST OR KA-BOOM"}),
+    ("Explosion + BOOM",         {"dense": "explosion fire destruction chaos", "fts": 'search_text:(BOOM OR BLAST OR "KA-BOOM")'}),
     ("Villain + escape phrase",  {"dense": "villain sinister evil grin",        "sparse": "villain escape capture"}),
-    ("Detective + murder",       {"dense": "detective investigating crime scene", "sparse": "crime mystery clue evidence", "fts": "detective AND murder"}),
+    ("Detective + murder",       {"dense": "detective investigating crime scene", "sparse": "crime mystery clue evidence", "fts": "search_text:(detective AND murder)"}),
 ]
 
 # Filter ($match_*) → dense pipeline: a native text-match filter narrows the
@@ -514,7 +499,7 @@ with left:
         )
         st.text_input(
             "fts_query", key="fts_q", label_visibility="collapsed",
-            placeholder='"phrase" OR keyword  ·  BANG OR POW  ·  field AND value',
+            placeholder='search_text:(BANG OR POW)  ·  search_text:("secret formula")  ·  ocr_text:(hero AND villain)',
         )
 
     # Dense
@@ -718,13 +703,9 @@ with right:
                         key=f"sim_{i}_{hit['_id']}",
                         on_click=_use_similar,
                         args=(hit["_id"],),
+                        use_container_width=True,
                     )
-                    st.button(
-                        "Find sounds",
-                        key=f"snd_{i}_{hit['_id']}",
-                        on_click=_find_sounds,
-                        args=(hit["_id"],),
-                    )
-            snd = st.session_state["_sounds"].get(hit.get("_id"))
-            if snd is not None:
-                _render_sounds(snd)
+                    # "Find sounds" button unwired for the initial release. The
+                    # backend (_find_sounds / _render_sounds here, and src/sounds/*)
+                    # is left intact so the feature can be re-enabled later by
+                    # restoring the button and the _render_sounds call below.

@@ -1,5 +1,6 @@
 streamlit>=1.40.0
 pinecone>=6.0.0
+boto3>=1.34.0  # S3 upload + image hosting (scripts/upload_images_to_s3.py)
 open-clip-torch>=2.20.0
 torch>=2.0.0
 pillow>=10.0.0
