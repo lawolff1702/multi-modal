@@ -395,6 +395,22 @@ for k, v in {
     st.session_state.setdefault(k, v)
 
 
+def _reset_query():
+    """Clear every signal toggle, query box, filter row, and the 'similar'
+    vector so a freshly-clicked example or 'See more like this' starts from a
+    clean slate — no stale signal or text leaks into the new search."""
+    _clear_filters()
+    st.session_state.fts_on    = False
+    st.session_state.dense_on  = False
+    st.session_state.sparse_on = False
+    st.session_state.fts_q     = "*"
+    st.session_state.dense_q   = ""
+    st.session_state.sparse_q  = ""
+    st.session_state.fts_type  = "query_string"
+    st.session_state["_similar_vec"] = None
+    st.session_state["_similar_id"]  = None
+
+
 def _find_sounds(hit_id: str):
     """Find FSD50K sound effects for a panel: OCR onomatopoeia first, CLIP-tag
     fallback, then CLAP search over the comic-sounds index."""
@@ -420,7 +436,7 @@ def _use_similar(hit_id: str):
         vec = result.documents[hit_id].get("image_dense")
         if not vec:
             raise ValueError("No dense vector stored for this record")
-        _clear_filters()
+        _reset_query()
         st.session_state["_similar_vec"] = vec
         st.session_state["_similar_id"]  = hit_id
         st.session_state.dense_on        = True
@@ -430,7 +446,7 @@ def _use_similar(hit_id: str):
 
 def _use_example(query: str, signal: str):
     """on_click callback — runs before rerun so widget keys can be set safely."""
-    _clear_filters()
+    _reset_query()
     if signal == "dense":
         st.session_state.dense_on = True
         st.session_state.dense_q  = query
@@ -444,7 +460,7 @@ def _use_example(query: str, signal: str):
 
 def _use_combined(queries: dict):
     """on_click callback for multi-signal examples — enables each signal in the dict."""
-    _clear_filters()
+    _reset_query()
     st.session_state.dense_on  = "dense"  in queries
     st.session_state.sparse_on = "sparse" in queries
     st.session_state.fts_on    = "fts"    in queries
@@ -463,7 +479,7 @@ def _use_filter_dense(field: str, op: str, value: str, dense_query: str):
     dense-only search, so the match operator narrows candidates server-side
     and the dense vector ranks them.
     """
-    _clear_filters()
+    _reset_query()
     fid = st.session_state.filter_next_id
     st.session_state.filter_next_id += 1
     st.session_state.filter_rows = [fid]
@@ -472,8 +488,6 @@ def _use_filter_dense(field: str, op: str, value: str, dense_query: str):
     st.session_state[f"fv_{fid}"] = value
     st.session_state.dense_on  = True
     st.session_state.dense_q   = dense_query
-    st.session_state.sparse_on = False
-    st.session_state.fts_on    = False
     st.session_state.run = True
 
 # ── header ────────────────────────────────────────────────────────────────────
@@ -609,7 +623,6 @@ if st.session_state.run:
         st.session_state.result_meta = {"error": "Enable at least one search signal."}
         st.session_state.results = []
     else:
-        _load_clip()
         idx     = _index()
         filters = _build_filters()
         top_k   = int(st.session_state.top_k)
@@ -631,6 +644,7 @@ if st.session_state.run:
                 if sim_vec is not None:
                     vec = sim_vec
                 else:
+                    _load_clip()  # CLIP (torch) is only needed to embed a dense *text* query
                     from src.embeddings.embed_images import embed_text_query
                     vec = embed_text_query(st.session_state.dense_q.strip())
                 r = search_dense(idx, NAMESPACE, vec, top_k=top_k, filters=filters)
