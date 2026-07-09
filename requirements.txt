@@ -2,7 +2,7 @@
 # small and fast — the default wheels pull ~2GB of unused CUDA libraries.
 --extra-index-url https://download.pytorch.org/whl/cpu
 
-streamlit>=1.40.0
+streamlit>=1.58.0     # keep in sync with sdk_version in README.md (HF Spaces)
 pinecone>=6.0.0
 boto3>=1.34.0            # S3 upload tool (scripts/upload_images_to_s3.py)
 open-clip-torch>=2.20.0
