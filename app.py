@@ -594,9 +594,9 @@ with st.container(key="strip"):
         st.markdown('<p class="section-label">Try:</p>', unsafe_allow_html=True)
     for i, (col, label) in enumerate(zip(cols[1:], STRIP_EXAMPLES)):
         with col:
-            st.button(label, key=f"strip_{i}", use_container_width=True,
+            st.button(label, key=f"strip_{i}", width="stretch",
                       on_click=_use_strip, args=(label,))
-    with cols[6], st.popover("More examples", key="strip_more", use_container_width=True):
+    with cols[6], st.popover("More examples", key="strip_more", width="stretch"):
         for title, caption, kind, items in EXAMPLE_SECTIONS:
             st.markdown(f'<p class="section-label" style="margin:8px 0 4px">{title}</p>',
                         unsafe_allow_html=True)
@@ -604,15 +604,15 @@ with st.container(key="strip"):
             for item in items:
                 if kind == "combined":
                     label, queries = item
-                    st.button(label, key=f"ex·{label}", use_container_width=True,
+                    st.button(label, key=f"ex·{label}", width="stretch",
                               on_click=_use_combined, args=(queries,))
                 elif kind == "filter_dense":
                     label = item[0]
-                    st.button(label, key=f"ex·{label}", use_container_width=True,
+                    st.button(label, key=f"ex·{label}", width="stretch",
                               on_click=_use_filter_dense, args=item[1:])
                 else:
                     label, query = item
-                    st.button(label, key=f"ex·{label}", use_container_width=True,
+                    st.button(label, key=f"ex·{label}", width="stretch",
                               on_click=_use_example, args=(query, kind))
 
 # ── two-column layout ─────────────────────────────────────────────────────────
@@ -679,7 +679,7 @@ with left:
         summary = f"{k} · {_OP_SHORT.get(op, op)} · {val or '…'}"
         c1, c2 = st.columns([5.6, 0.8])
         with c1:
-            with st.popover(summary, key=f"fp_{fid}", use_container_width=True):
+            with st.popover(summary, key=f"fp_{fid}", width="stretch"):
                 st.selectbox("Field", ALL_FIELDS, key=f"fk_{fid}")
                 st.selectbox("Operator", OPS, key=f"fo_{fid}",
                              help="Match phrase / all / any run full-text matching server-side")
@@ -688,10 +688,10 @@ with left:
         with c2:
             st.button("✕", key=f"fr_{fid}",
                       on_click=_remove_filter, args=(fid,),
-                      use_container_width=True)
+                      width="stretch")
 
     st.button("+ Add filter", key="add_filter",
-              on_click=_add_filter, use_container_width=True)
+              on_click=_add_filter, width="stretch")
     st.checkbox("Exclude ad pages", key="exclude_ads")
 
     st.divider()
@@ -705,7 +705,7 @@ with left:
     st.caption("Metadata fields shown on each result card.")
 
     st.write("")
-    if st.button("Run query", type="primary", use_container_width=True):
+    if st.button("Run query", type="primary", width="stretch"):
         st.session_state.run = True
 
 # ── run search ────────────────────────────────────────────────────────────────
@@ -815,7 +815,7 @@ with right:
                         key=f"sim_{i}_{hit['_id']}",
                         on_click=_use_similar,
                         args=(hit["_id"],),
-                        use_container_width=True,
+                        width="stretch",
                     )
                     # "Find sounds" button unwired for the initial release. The
                     # backend (_find_sounds / _render_sounds here, and src/sounds/*)
