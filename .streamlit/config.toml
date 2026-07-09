@@ -4,6 +4,8 @@ primaryColor = "#002BFF"
 backgroundColor = "#FAFAFA"
 secondaryBackgroundColor = "#F0F0F0"
 textColor = "#0A0A0A"
+# corner radius for all native widgets; keep in sync with --radius in app.py
+baseRadius = "2px"
 
 [server]
 headless = true

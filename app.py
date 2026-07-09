@@ -22,14 +22,46 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+  /* corner radius for custom HTML; keep in sync with theme.baseRadius in .streamlit/config.toml */
+  :root { --radius: 2px; }
+
   #MainMenu, footer, [data-testid="collapsedControl"] { visibility: hidden; }
   .block-container { padding-top: 1.5rem !important; max-width: 1400px !important; }
+
+  /* hero header — margin-top keeps the title clear of Streamlit's fixed toolbar */
+  .hero { margin-top: 2.25rem; padding-bottom: 14px; border-bottom: 1px solid #e5e5e5; }
+  .hero-title { font-size: 26px; font-weight: 700; color: #0a0a0a; line-height: 1.2; }
+  .hero-tag { font-size: 14px; color: #404040; margin-top: 4px; }
+  .hero-caps { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .hero-chip {
+    font-size: 11px; font-weight: 600; color: #002BFF;
+    background: rgba(0,43,255,0.06); border-radius: var(--radius);
+    padding: 3px 8px; cursor: default;
+  }
+  .hero-meta { font-size: 11px; color: #737373; margin-left: auto; }
+
+  /* example strip: equal-width chips; extra margin separates it from the hero rule */
+  div.st-key-strip { margin-top: 12px; }
+  /* "Try:" label — Streamlit vertically centers the column by its wrapper box
+     (~10px) while the label's line box (~26px) overflows below it; nudge the
+     text up half the overflow so it sits on the chips' true centerline */
+  div.st-key-strip [data-testid="stColumn"]:first-of-type .section-label {
+    transform: translateY(-8px);
+  }
+  div[class*="st-key-strip_"] button {
+    min-height: 30px !important;
+    padding: 2px 12px !important;
+  }
+  div[class*="st-key-strip_"] button p {
+    font-size: 12px !important;
+    white-space: nowrap !important;
+  }
 
   /* result card */
   .rc {
     background: #fff;
     border: 1px solid #e5e5e5;
-    border-radius: 2px;
+    border-radius: var(--radius);
     padding: 18px 20px;
     display: grid;
     grid-template-columns: 62px 1fr;
@@ -43,7 +75,7 @@ st.markdown("""
   }
   .rc-rank {
     width: 40px; height: 40px;
-    background: rgba(0,43,255,0.05); border-radius: 2px;
+    background: rgba(0,43,255,0.05); border-radius: var(--radius);
     display: flex; align-items: center; justify-content: center;
     font-weight: 700; font-size: 15px; color: #0a0a0a; flex-shrink: 0;
   }
@@ -54,7 +86,7 @@ st.markdown("""
   .rc-score-val { font-family: monospace; font-size: 12px; color: #0a0a0a; text-align: center; }
   .rc-tag {
     font-size: 10px; background: rgba(0,43,255,0.06);
-    color: #002BFF; border-radius: 2px;
+    color: #002BFF; border-radius: var(--radius);
     padding: 2px 5px; font-weight: 600; display: inline-block; margin: 1px;
   }
   .rc-right { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -88,7 +120,7 @@ st.markdown("""
   .rc-img {
     max-width: 100%; max-height: 65vh;
     width: auto; height: auto;
-    border-radius: 2px; display: block;
+    border-radius: var(--radius); display: block;
   }
   .rc-id {
     font-family: monospace; font-size: 13px;
@@ -121,22 +153,25 @@ st.markdown("""
   .section-label {
     font-size: 11px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.08em;
-    color: #737373; margin: 0;
+    color: #737373; margin: 0; white-space: nowrap;
   }
 
   /* disable typing in all selectboxes — click still opens the dropdown */
   div[data-testid="stSelectbox"] input { pointer-events: none; }
 
-  /* uniform 3px radius across all native Streamlit components */
-  button, input, textarea, select,
-  [data-testid="stTextInput"] > div,
-  [data-testid="stSelectbox"] > div > div,
-  [data-testid="stNumberInput"] > div,
-  [data-testid="stMultiSelect"] > div,
-  [data-testid="stExpander"],
-  [data-testid="stExpander"] details,
-  [data-testid="stExpander"] summary,
-  [data-testid="stAlert"] { border-radius: 2px !important; }
+  /* filter editor popover: enough room for full-width field/operator/value controls */
+  div[data-testid="stPopoverBody"] { min-width: 320px; }
+  /* filter summary chips: left-align the text; clamp to one line with ellipsis */
+  div[class*="st-key-fp_"] button { justify-content: flex-start !important; }
+  div[class*="st-key-fp_"] button > div { min-width: 0; overflow: hidden; }
+  div[class*="st-key-fp_"] button > div > div:first-child { min-width: 0 !important; overflow: hidden; }
+  div[class*="st-key-fp_"] button > div > div[aria-hidden="true"] { flex-shrink: 0 !important; }
+  div[class*="st-key-fp_"] button p {
+    text-align: left !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
 
   /* center the ✕ glyph in filter remove buttons */
   div[class*="st-key-fr_"] button {
@@ -168,6 +203,12 @@ _OP_MAP = {
     "Match phrase": "$match_phrase",
     "Match all":    "$match_all",
     "Match any":    "$match_any",
+}
+# Compact operator labels for the one-line filter summary chips.
+_OP_SHORT = {
+    "==": "=", "!=": "≠", ">": ">", ">=": "≥", "<": "<", "<=": "≤",
+    "In": "in", "Not In": "not in",
+    "Match phrase": "phrase", "Match all": "has all", "Match any": "has any",
 }
 ALL_FIELDS = ["comic_id", "book_id", "page_id", "page_num", "panel_num", "source", "ocr_text", "search_text", "image_path", "is_ad_page"]
 
@@ -208,6 +249,7 @@ def _add_filter():
     fid = st.session_state.filter_next_id
     st.session_state.filter_rows = st.session_state.filter_rows + [fid]
     st.session_state.filter_next_id += 1
+    st.session_state[f"fk_{fid}"] = "search_text"
 
 def _remove_filter(fid: int):
     st.session_state.filter_rows = [r for r in st.session_state.filter_rows if r != fid]
@@ -325,48 +367,13 @@ def _render_sounds(snd: dict) -> None:
 
 # ── example queries ───────────────────────────────────────────────────────────
 
-EXAMPLES = {
-    "Visual (Dense)": [
-        ("Hero flying",             "hero in cape flying through sky"),
-        ("Fistfight",               "two men punching fighting brawl"),
-        ("Explosion",               "explosion fire destruction chaos"),
-        ("Detective",               "detective investigating crime scene"),
-    ],
-    "Animals (Dense)": [
-        ("Elephant",                "elephant in the jungle"),
-        ("Horse riding",            "man riding a horse"),
-        ("Lion / big cat",          "lion roaring in the wild"),
-        ("Dog companion",           "dog sitting beside a person"),
-    ],
-    "Space / Alien (Dense)": [
-        ("Rocket in space",         "spaceship rocket outer space stars"),
-        ("Alien creature",          "alien creature from another planet"),
-        ("Astronaut",               "astronaut floating in space"),
-        ("Flying saucer",          "flying saucer UFO in the sky"),
-    ],
-    "Keyword (Sparse)": [
-        ("Secret formula",          "secret formula"),
-        ("Villain escape",          "villain escape capture"),
-        ("Crime mystery",           "crime mystery clue evidence"),
-    ],
-    "Sound effects (FTS)": [
-        ("POW / BANG / ZAP",        "search_text:(BANG OR POW OR ZAP)"),
-        ("BOOM / BLAST",            'search_text:(BOOM OR BLAST OR "KA-BOOM")'),
-        ("THUD / SMASH",            "search_text:(THUD OR CRUNCH OR SMASH)"),
-    ],
-    "Phrases (FTS)": [
-        ('"secret formula"',        'search_text:("secret formula")'),
-        ("detective AND murder",    "search_text:(detective AND murder)"),
-        ("danger AND rescue",       "search_text:(danger AND rescue)"),
-    ],
-}
-
-# Combined examples — each fires multiple signals at once (fused with RRF).
-# Each entry maps signal name → query text for that signal.
+# Combined examples — each fires multiple signals at once; the ranked lists
+# are re-ranked client-side with RRF. Each entry maps signal name → query text.
 COMBINED_EXAMPLES = [
-    ("Explosion + BOOM",         {"dense": "explosion fire destruction chaos", "fts": 'search_text:(BOOM OR BLAST OR "KA-BOOM")'}),
+    ("Explosion + BOOM",         {"dense": "explosion fire destruction chaos", "fts": 'search_text:(BOOM^2 OR BLAST OR "KA-BOOM")'}),
     ("Villain + escape phrase",  {"dense": "villain sinister evil grin",        "sparse": "villain escape capture"}),
     ("Detective + murder",       {"dense": "detective investigating crime scene", "sparse": "crime mystery clue evidence", "fts": "search_text:(detective AND murder)"}),
+    ("Formula + exact phrase",   {"sparse": "secret formula chemical",          "fts": 'search_text:("secret formula")'}),
 ]
 
 # Filter ($match_*) → dense pipeline: a native text-match filter narrows the
@@ -376,7 +383,62 @@ FILTER_DENSE_EXAMPLES = [
     ("'formula' text → lab scene",   "search_text", "Match any", "formula chemical experiment", "scientist in a laboratory"),
     ("'space' phrase → rocket art",  "search_text", "Match phrase", "outer space",              "spaceship rocket among the stars"),
     ("'monster attack' → creature",  "search_text", "Match all", "monster attack",              "giant monster creature attacking"),
+    ("'jungle' text → wild beasts",  "search_text", "Match any", "jungle wild beast",           "wild animal prowling in the jungle"),
 ]
+
+# "More examples" popover: (section title, one-line caption, signal kind, items).
+# kind "fts" (query_string), "fts_text" (BM25), "dense", "sparse" items are
+# (label, query); "filter_dense" items are FILTER_DENSE_EXAMPLES rows;
+# "combined" items are COMBINED_EXAMPLES rows.
+EXAMPLE_SECTIONS = [
+    ("FTS · Phrases & keywords",
+     "FTS type “text”: plain BM25 relevance over search_text — no query syntax needed.",
+     "fts_text", [
+        ("secret formula",       "secret formula"),
+        ("POW BANG ZAP",         "POW BANG ZAP"),
+        ("mad scientist",        "mad scientist"),
+        ("buried treasure",      "buried treasure"),
+     ]),
+    ("FTS · Lucene syntax",
+     "FTS type “query_string”: phrase slop (~N), term boosting (^N), per-field targeting.",
+     "fts", [
+        ('"detective murder"~5 · slop',       'search_text:("detective murder"~5)'),
+        ("explosion^2 OR fire · boost",       "search_text:(explosion^2 OR fire)"),
+        ('"secret formula"~3 OR treasure^2',  'search_text:("secret formula"~3 OR treasure^2)'),
+        ("ocr_text:(hero AND villain)",       "ocr_text:(hero AND villain)"),
+     ]),
+    ("Dense · Visual (CLIP)",
+     "Finds panels by what's drawn: OpenCLIP embeds the text and matches image vectors.",
+     "dense", [
+        ("Hero flying",          "hero in cape flying through sky"),
+        ("Fistfight",            "two men punching fighting brawl"),
+        ("Elephant",             "elephant in the jungle"),
+        ("Rocket in space",      "spaceship rocket outer space stars"),
+     ]),
+    ("Filter ($match_*) → Dense",
+     "A server-side text-match filter narrows candidates, then CLIP ranks what survives.",
+     "filter_dense", FILTER_DENSE_EXAMPLES),
+    ("Sparse · Keyword expansion",
+     "Learned keyword expansion over OCR text (pinecone-sparse-english-v0).",
+     "sparse", [
+        ("Secret formula",       "secret formula"),
+        ("Villain escape",       "villain escape capture"),
+        ("Crime mystery",        "crime mystery clue evidence"),
+        ("Hidden treasure",      "hidden treasure map gold"),
+     ]),
+    ("Hybrid · Client-side RRF",
+     "Each signal queries the index separately; the ranked lists are re-ranked client-side with Reciprocal Rank Fusion.",
+     "combined", COMBINED_EXAMPLES),
+]
+
+# Header strip chips: label → (signal kind, payload), one equal-width button each.
+STRIP_EXAMPLES = {
+    "Hero flying":                 ("dense",        "hero in cape flying through sky"),
+    "POW / BANG / ZAP":            ("fts_text",     "POW BANG ZAP"),
+    "'space' phrase → rocket art": ("filter_dense", FILTER_DENSE_EXAMPLES[1][1:]),
+    "Explosion + BOOM":            ("combined",     COMBINED_EXAMPLES[0][1]),
+    "Secret formula":              ("sparse",       "secret formula"),
+}
 
 # ── session state ─────────────────────────────────────────────────────────────
 
@@ -386,7 +448,7 @@ for k, v in {
     "fts_type": "query_string",
     "top_k": 20, "exclude_ads": True,
     "filter_rows": [], "filter_next_id": 0, "filter_combinator": "And",
-    "show_fields": ["ocr_text"],
+    "show_fields": ["search_text"],
     "_similar_vec": None, "_similar_id": None,
     "_sounds": {},
     "results": None, "result_meta": {},
@@ -445,7 +507,11 @@ def _use_similar(hit_id: str):
         st.session_state.result_meta = {"error": f"Could not fetch vector: {exc}"}
 
 def _use_example(query: str, signal: str):
-    """on_click callback — runs before rerun so widget keys can be set safely."""
+    """on_click callback — runs before rerun so widget keys can be set safely.
+
+    signal "fts" runs query_string (Lucene); "fts_text" runs the text type
+    (plain BM25 over search_text) — _reset_query defaults back to query_string.
+    """
     _reset_query()
     if signal == "dense":
         st.session_state.dense_on = True
@@ -456,6 +522,8 @@ def _use_example(query: str, signal: str):
     else:
         st.session_state.fts_on = True
         st.session_state.fts_q  = query
+        if signal == "fts_text":
+            st.session_state.fts_type = "text"
     st.session_state.run = True
 
 def _use_combined(queries: dict):
@@ -490,10 +558,62 @@ def _use_filter_dense(field: str, op: str, value: str, dense_query: str):
     st.session_state.dense_q   = dense_query
     st.session_state.run = True
 
+def _use_strip(label: str):
+    """on_click callback for the header example chips."""
+    kind, payload = STRIP_EXAMPLES[label]
+    if kind == "combined":
+        _use_combined(payload)
+    elif kind == "filter_dense":
+        _use_filter_dense(*payload)
+    else:
+        _use_example(payload, kind)
+
 # ── header ────────────────────────────────────────────────────────────────────
 
-st.markdown("## Browse your index")
-st.caption(f"comic-panels · 1,229,664 panels · namespace: {NAMESPACE}")
+st.markdown(f"""
+<div class="hero">
+  <div class="hero-title">💥 Comic Panel Search</div>
+  <div class="hero-tag">Search 1,229,664 golden-age comic panels by what's drawn, what's said, or both.</div>
+  <div class="hero-caps">
+    <span class="hero-chip" title="OpenCLIP ViT-B/16 image embeddings, queried by text description">Dense · CLIP visual</span>
+    <span class="hero-chip" title="pinecone-sparse-english-v0 keyword expansion over OCR text">Sparse · keywords</span>
+    <span class="hero-chip" title="Two FTS types: text (plain BM25 relevance) and query_string (Lucene: slop, boosting, per-field)">Full-text · BM25 / Lucene</span>
+    <span class="hero-chip" title="Enable multiple signals; the ranked lists are re-ranked client-side with Reciprocal Rank Fusion">Hybrid · RRF</span>
+    <span class="hero-meta">comic-panels · 1,229,664 panels · namespace {NAMESPACE} · COMICS dataset</span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ── example strip ─────────────────────────────────────────────────────────────
+# One chip per capability; always visible, even with results on screen.
+# Equal-width chips plus the "More examples" trigger span the full bar.
+
+with st.container(key="strip"):
+    cols = st.columns([0.55, 1, 1, 1, 1, 1, 1], gap="small", vertical_alignment="center")
+    with cols[0]:
+        st.markdown('<p class="section-label">Try:</p>', unsafe_allow_html=True)
+    for i, (col, label) in enumerate(zip(cols[1:], STRIP_EXAMPLES)):
+        with col:
+            st.button(label, key=f"strip_{i}", use_container_width=True,
+                      on_click=_use_strip, args=(label,))
+    with cols[6], st.popover("More examples", key="strip_more", use_container_width=True):
+        for title, caption, kind, items in EXAMPLE_SECTIONS:
+            st.markdown(f'<p class="section-label" style="margin:8px 0 4px">{title}</p>',
+                        unsafe_allow_html=True)
+            st.caption(caption)
+            for item in items:
+                if kind == "combined":
+                    label, queries = item
+                    st.button(label, key=f"ex·{label}", use_container_width=True,
+                              on_click=_use_combined, args=(queries,))
+                elif kind == "filter_dense":
+                    label = item[0]
+                    st.button(label, key=f"ex·{label}", use_container_width=True,
+                              on_click=_use_filter_dense, args=item[1:])
+                else:
+                    label, query = item
+                    st.button(label, key=f"ex·{label}", use_container_width=True,
+                              on_click=_use_example, args=(query, kind))
 
 # ── two-column layout ─────────────────────────────────────────────────────────
 
@@ -513,7 +633,11 @@ with left:
         )
         st.text_input(
             "fts_query", key="fts_q", label_visibility="collapsed",
-            placeholder='search_text:(BANG OR POW)  ·  search_text:("secret formula")  ·  ocr_text:(hero AND villain)',
+            placeholder=(
+                'search_text:("secret formula")  ·  search_text:(explosion^2 OR fire)  ·  ocr_text:(hero AND villain)'
+                if st.session_state.fts_type == "query_string"
+                else "plain text, ranked by BM25: secret formula"
+            ),
         )
 
     # Dense
@@ -537,9 +661,11 @@ with left:
     st.divider()
 
     # ── Filters ───────────────────────────────────────────────────────────
-    fhdr_l, fhdr_r = st.columns([1, 2])
+    n_active = len(st.session_state.filter_rows)
+    fhdr_label = f"Filters · {n_active}" if n_active else "Filters"
+    fhdr_l, fhdr_r = st.columns([1.4, 1.6], vertical_alignment="center")
     with fhdr_l:
-        st.markdown('<p class="section-label">Filters</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="section-label">{fhdr_label}</p>', unsafe_allow_html=True)
     if st.session_state.filter_rows:
         with fhdr_r:
             st.selectbox("Combine", ["And", "Or"], key="filter_combinator",
@@ -547,19 +673,19 @@ with left:
                          help="How to combine multiple filter conditions")
 
     for fid in st.session_state.filter_rows:
+        k   = st.session_state.get(f"fk_{fid}", "search_text")
         op  = st.session_state.get(f"fo_{fid}", "==")
-        op_w = max(2.0, min(3.2, len(op) * 0.25))
-        fv_w = (6.4 - op_w - 0.8) / 2
-        c1, c2, c3, c4 = st.columns([fv_w, op_w, fv_w, 0.8])
+        val = st.session_state.get(f"fv_{fid}", "").strip()
+        summary = f"{k} · {_OP_SHORT.get(op, op)} · {val or '…'}"
+        c1, c2 = st.columns([5.6, 0.8])
         with c1:
-            st.text_input("Key", key=f"fk_{fid}",
-                          label_visibility="collapsed", placeholder="field")
+            with st.popover(summary, key=f"fp_{fid}", use_container_width=True):
+                st.selectbox("Field", ALL_FIELDS, key=f"fk_{fid}")
+                st.selectbox("Operator", OPS, key=f"fo_{fid}",
+                             help="Match phrase / all / any run full-text matching server-side")
+                st.text_input("Value", key=f"fv_{fid}",
+                              placeholder="comma-separated for In / Not In")
         with c2:
-            st.selectbox("Op", OPS, key=f"fo_{fid}", label_visibility="collapsed")
-        with c3:
-            st.text_input("Value", key=f"fv_{fid}",
-                          label_visibility="collapsed", placeholder="value")
-        with c4:
             st.button("✕", key=f"fr_{fid}",
                       on_click=_remove_filter, args=(fid,),
                       use_container_width=True)
@@ -573,42 +699,14 @@ with left:
     # ── Results ───────────────────────────────────────────────────────────
     st.markdown('<p class="section-label">Results</p>', unsafe_allow_html=True)
     st.number_input("Top K", min_value=1, max_value=200, step=5, key="top_k")
-    st.multiselect("Fields", ALL_FIELDS, key="show_fields",
-                   label_visibility="collapsed",
-                   placeholder="Fields to display in results")
+    st.multiselect("Metadata to show", ALL_FIELDS, key="show_fields",
+                   placeholder="Fields to display in results",
+                   help="Which metadata fields appear on each result card")
+    st.caption("Metadata fields shown on each result card.")
 
     st.write("")
     if st.button("Run query", type="primary", use_container_width=True):
         st.session_state.run = True
-
-    st.divider()
-
-    # ── Examples ──────────────────────────────────────────────────────────
-    with st.expander("Example queries"):
-        st.markdown('<p class="section-label" style="margin:8px 0 4px">Combined (Hybrid · RRF)</p>',
-                    unsafe_allow_html=True)
-        for label, queries in COMBINED_EXAMPLES:
-            st.button(label, key=f"ex·combo·{label}", use_container_width=True,
-                      on_click=_use_combined, args=(queries,))
-
-        st.markdown('<p class="section-label" style="margin:8px 0 4px">Filter ($match_*) → Dense</p>',
-                    unsafe_allow_html=True)
-        for label, field, op, value, dense_q in FILTER_DENSE_EXAMPLES:
-            st.button(label, key=f"ex·fd·{label}", use_container_width=True,
-                      on_click=_use_filter_dense, args=(field, op, value, dense_q))
-
-        for category, items in EXAMPLES.items():
-            st.markdown(f'<p class="section-label" style="margin:8px 0 4px">{category}</p>',
-                        unsafe_allow_html=True)
-            for label, query in items:
-                if "Visual" in category:
-                    sig = "dense"
-                elif "Keyword" in category:
-                    sig = "sparse"
-                else:
-                    sig = "fts"
-                st.button(label, key=f"ex·{label}", use_container_width=True,
-                          on_click=_use_example, args=(query, sig))
 
 # ── run search ────────────────────────────────────────────────────────────────
 
@@ -691,7 +789,7 @@ with right:
     elif meta.get("info"):
         st.warning(meta["info"])
     elif results is None:
-        st.markdown('<div class="ph">Configure your query and click <strong>Run query</strong></div>',
+        st.markdown('<div class="ph">Pick an example above, or configure a query and click <strong>Run query</strong></div>',
                     unsafe_allow_html=True)
     elif len(results) == 0:
         st.markdown('<div class="ph">No results — try adjusting your query or enabling more signals.</div>',
