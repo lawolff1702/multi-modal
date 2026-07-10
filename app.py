@@ -57,18 +57,21 @@ st.markdown("""
     white-space: nowrap !important;
   }
 
-  /* result card */
-  .rc {
+  /* result card — the bordered box is the keyed container so the
+     "See more like this" button can live inside it */
+  div[class*="st-key-card_"] {
     background: #fff;
     border: 1px solid #e5e5e5;
     border-radius: var(--radius);
-    padding: 18px 20px;
+    padding: 18px 20px 20px;
+    gap: 6px;
+  }
+  div[class*="st-key-card_"]:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.07); }
+  .rc {
     display: grid;
     grid-template-columns: 62px 1fr;
     gap: 18px;
-    margin-bottom: 10px;
   }
-  .rc:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.07); }
   .rc-left {
     display: flex; flex-direction: column;
     align-items: center; gap: 8px; padding-top: 2px;
@@ -91,25 +94,22 @@ st.markdown("""
   }
   .rc-right { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 
-  /* "See more like this" button — top of right column, styled as a link */
-  div[data-testid="stHorizontalBlock"]:has(.rc) > div[data-testid="column"]:last-child button {
-    background: none !important; border: none !important;
-    box-shadow: none !important; padding: 0 !important;
-    min-height: unset !important; height: auto !important;
+  /* "See more like this" — small button in the card's bottom-right corner
+     (same compact sizing as the strip chips); the element container is
+     shrink-to-fit, so an auto left margin pushes it to the right edge of
+     the card's flex column */
+  div[class*="st-key-sim_"] { margin-left: auto; margin-top: 18px; }
+  div[class*="st-key-sim_"] button {
+    min-height: 30px !important;
+    padding: 2px 12px !important;
   }
-  div[data-testid="stHorizontalBlock"]:has(.rc) > div[data-testid="column"]:last-child button p {
-    color: #002BFF !important; text-decoration: underline !important;
-    font-size: 12px !important; white-space: nowrap !important; margin: 0 !important;
+  div[class*="st-key-sim_"] button p {
+    font-size: 12px !important; white-space: nowrap !important;
   }
-  div[data-testid="stHorizontalBlock"]:has(.rc) > div[data-testid="column"]:last-child button:hover p {
-    color: #0020CC !important;
-  }
-  /* panel action buttons (See more / Find sounds): identical, centered */
-  div[class*="st-key-sim_"] button,
+  /* "Find sounds" (parked): full-width, centered */
   div[class*="st-key-snd_"] button {
     width: 100% !important;
   }
-  div[class*="st-key-sim_"] button p,
   div[class*="st-key-snd_"] button p {
     font-size: 14px !important;
     white-space: normal !important;
@@ -120,6 +120,10 @@ st.markdown("""
   .rc-img {
     max-width: 100%; max-height: 65vh;
     width: auto; height: auto;
+    /* .rc-right is a flex column; align-self keeps the img from stretching
+       to the full column width (object-fit would letterbox small panels in
+       a huge box, inflating the card) while centering it in the card */
+    align-self: center;
     border-radius: var(--radius); display: block;
   }
   .rc-id {
@@ -400,12 +404,12 @@ EXAMPLE_SECTIONS = [
         ("buried treasure",      "buried treasure"),
      ]),
     ("FTS · Lucene syntax",
-     "FTS type “query_string”: phrase slop (~N), term boosting (^N), per-field targeting.",
+     "FTS type “query_string”: phrase slop (~N), term boosting (^N), boolean NOT.",
      "fts", [
         ('"detective murder"~5 · slop',       'search_text:("detective murder"~5)'),
         ("explosion^2 OR fire · boost",       "search_text:(explosion^2 OR fire)"),
         ('"secret formula"~3 OR treasure^2',  'search_text:("secret formula"~3 OR treasure^2)'),
-        ("ocr_text:(hero AND villain)",       "ocr_text:(hero AND villain)"),
+        ("search_text:(hero NOT villain)",    "search_text:(hero NOT villain)"),
      ]),
     ("Dense · Visual (CLIP)",
      "Finds panels by what's drawn: OpenCLIP embeds the text and matches image vectors.",
@@ -634,7 +638,7 @@ with left:
         st.text_input(
             "fts_query", key="fts_q", label_visibility="collapsed",
             placeholder=(
-                'search_text:("secret formula")  ·  search_text:(explosion^2 OR fire)  ·  ocr_text:(hero AND villain)'
+                'search_text:("secret formula")  ·  search_text:(explosion^2 OR fire)  ·  search_text:(hero NOT villain)'
                 if st.session_state.fts_type == "query_string"
                 else "plain text, ranked by BM25: secret formula"
             ),
@@ -805,17 +809,14 @@ with right:
         )
         show_fields = st.session_state.show_fields or SHOW_FIELDS
         for i, hit in enumerate(results, 1):
-            c_card, c_sim = st.columns([10, 2])
-            with c_card:
+            with st.container(key=f"card_{i}"):
                 _card(hit, i, show_fields)
-            with c_sim:
                 if hit.get("_id"):
                     st.button(
                         "See more like this...",
                         key=f"sim_{i}_{hit['_id']}",
                         on_click=_use_similar,
                         args=(hit["_id"],),
-                        width="stretch",
                     )
                     # "Find sounds" button unwired for the initial release. The
                     # backend (_find_sounds / _render_sounds here, and src/sounds/*)
